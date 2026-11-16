@@ -1,0 +1,63 @@
+services:
+  db:
+    image: postgres:17.6-bookworm
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hotel_maintenance}
+      POSTGRES_USER: ${POSTGRES_USER:-hotel_maintenance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment: &database_environment
+      PUBLIC_SPEEDTEST_ORIGIN: ${PUBLIC_SPEEDTEST_ORIGIN:-}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-hotel_maintenance}
+      POSTGRES_USER: ${POSTGRES_USER:-hotel_maintenance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal
+    restart: "no"
+  api:
+    build: .
+    volumes:
+      - photos:/app/storage/photos
+    environment: *database_environment
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - api_network
+      - internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/db', timeout=8)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+networks:
+  api_network:
+    driver: bridge
+    internal: false
+  internal:
+    internal: true
+volumes:
+  postgres_data:
+  photos:

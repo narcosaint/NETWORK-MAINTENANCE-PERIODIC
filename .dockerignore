@@ -1,0 +1,13 @@
+.git
+.env
+.env.*
+.venv
+**/__pycache__
+**/.pytest_cache
+storage
+mobile
+librespeed
+
+artifacts
+tests
+docs

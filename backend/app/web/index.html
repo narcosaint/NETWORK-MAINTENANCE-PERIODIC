@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#122c26">
+  <title>Hotel Network • Maintenance</title>
+  <link rel="stylesheet" href="/assets/style.css?v=ac1758705088">
+  <link rel="stylesheet" href="/assets/sampling.css?v=625d24741c18">
+  <script src="/assets/app.js?v=phase2-1" defer></script>
+  <script src="/assets/hotel.js?v=phase2-1" defer></script>
+  <script src="/assets/speedtest.js?v=efad2ba069a2" defer></script>
+  <script src="/assets/sampling-service.js?v=6a24e4f724d7" defer></script>
+  <script src="/assets/sampling.js?v=phase2-1" defer></script>
+  <script src="/assets/hotel-detail.js?v=phase2-1" defer></script>
+  <link rel="stylesheet" href="/assets/dashboard-v2.css?v=2.1">
+  <script src="/assets/dashboard-v2.js?v=2.1" defer></script>
+</head>
+<body>
+  <section id="login-view" class="login-layout">
+    <div class="login-story"><span class="brand"><span class="brand-icon">H</span> HOTEL NETWORK</span><div><p class="eyebrow">OPERASIONAL JARINGAN HOTEL</p><h1>Jaringan terawat.<br>Kunjungan tercatat.</h1><p>Kelola preventive maintenance, catat pemeriksaan perangkat, dan tinjau hasil kunjungan dalam satu tempat.</p></div><p class="story-footer">MAINTENANCE WORKSPACE <span>01 / OPERATIONS</span></p></div>
+    <div class="login-panel"><form id="login-form"><span class="eyebrow">SELAMAT DATANG KEMBALI</span><h2>Masuk ke workspace</h2><p class="muted">Gunakan akun supervisor atau teknisi Anda.</p><label>Username<input name="username" autocomplete="username" required maxlength="100"></label><label>Password<input name="password" type="password" autocomplete="current-password" required maxlength="128"></label><p id="login-error" role="alert" class="error"></p><button class="primary wide" type="submit">Masuk ke workspace <span>→</span></button><p class="small muted">Sesi berakhir saat halaman ditutup atau dimuat ulang.</p></form></div>
+  </section>
+  <div id="workspace" class="workspace" hidden>
+    <aside class="sidebar" id="mobile-navigation"><button type="button" id="close-navigation" class="secondary" aria-label="Tutup menu">Tutup ×</button><a class="brand" href="#"><span class="brand-icon">H</span><span>HOTEL<br>NETWORK</span></a><p class="nav-caption">Hotel Internet Preventive Maintenance</p><nav id="navigation" aria-label="Navigasi utama"></nav><div class="sidebar-bottom"><div class="avatar" id="avatar"></div><div><strong id="user-name"></strong><p id="user-role"></p></div><button id="logout" class="icon-button" title="Keluar" aria-label="Keluar">↗</button></div></aside>
+    <button type="button" id="navigation-backdrop" aria-label="Tutup menu" hidden></button><main><header class="topbar"><button type="button" id="open-navigation" class="secondary" aria-controls="mobile-navigation" aria-expanded="false" aria-label="Buka menu">☰</button><span>OPERASIONAL <span class="slash">/</span> <span id="breadcrumb">Ringkasan</span></span><span class="live-badge"><i></i> Terhubung</span></header><div class="page"><div id="notice" role="status" hidden></div><div id="page-content"></div></div></main>
+  </div>
+  <dialog id="form-dialog"><form id="editor-form"><div class="dialog-heading"><div><p class="eyebrow">HOTEL NETWORK</p><h2 id="dialog-title"></h2></div><button type="button" id="close-dialog" class="icon-button" aria-label="Tutup">×</button></div><div id="dialog-fields"></div><p id="form-error" role="alert" class="error"></p><footer class="dialog-footer"><button type="button" id="cancel-dialog" class="secondary">Batal</button><button type="submit" class="primary" id="save-form">Simpan</button></footer></form></dialog>
+</body></html>

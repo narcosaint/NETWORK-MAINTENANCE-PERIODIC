@@ -1,0 +1,6 @@
+{
+  "upstream": "https://github.com/librespeed/speedtest",
+  "commit": "06524abd22e4581fb38a32393b80f37beec05f34",
+  "original_worker_sha256": "5a25a82080fd0fbeb1938ead5da3c80a924dea295b5d0d76047984db4c2a42bf",
+  "modification": "Same-origin, run-specific transfer token header; no application login token or third-party telemetry. Download HTTP errors terminate the stream rather than restarting indefinitely."
+}

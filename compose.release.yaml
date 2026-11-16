@@ -1,0 +1,30 @@
+# Release API uses the existing database/networks and preserves the old API container.
+services:
+  api:
+    image: hotel-maintenance-api:latest
+    container_name: hotel-maintenance-api-current
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-hotel_maintenance}
+      POSTGRES_USER: ${POSTGRES_USER:-hotel_maintenance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - internal
+      - api_network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/db', timeout=8)"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+networks:
+  internal:
+    external: true
+    name: hotel-maintenance_internal
+  api_network:
+    external: true
+    name: hotel-maintenance_api_network

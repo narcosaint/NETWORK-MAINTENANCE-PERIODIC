@@ -1,0 +1,39 @@
+# Web release preserves the previous backend container and uses the existing database.
+services:
+  api:
+    image: hotel-maintenance-api:sampling-20261113
+    container_name: hotel-maintenance-web-sampling
+    environment:
+      PHOTO_STORAGE_ROOT: /app/storage/photos
+      PUBLIC_SPEEDTEST_ORIGIN: ${PUBLIC_SPEEDTEST_ORIGIN:-}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-hotel_maintenance}
+      POSTGRES_USER: ${POSTGRES_USER:-hotel_maintenance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - photos:/app/storage/photos
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - internal
+      - api_network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/db', timeout=8)"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+networks:
+  internal:
+    external: true
+    name: hotel-maintenance_internal
+  api_network:
+    external: true
+    name: hotel-maintenance_api_network
+
+volumes:
+  photos:
+    external: true
+    name: hotel-maintenance_photos
