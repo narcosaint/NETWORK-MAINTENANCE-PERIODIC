@@ -1,4 +1,11 @@
-import type { Floor, Item, Point, Report, Visit } from "./types";
+import type {
+  Floor,
+  Item,
+  Point,
+  Report,
+  Visit,
+  SamplingCoverage,
+} from "./types";
 export const statusLabels: Record<string, string> = {
   assigned: "Belum Dikerjakan",
   in_progress: "Dalam Proses",
@@ -31,7 +38,9 @@ export function pointEvidence(p: Point) {
       Number.isFinite(run.metrics?.[k as keyof typeof run.metrics]),
     );
   const failed = run?.status === "failed" && !!run.error?.trim();
-  const problem = item?.result?.outcome === "fail" || failed;
+  const condition = p.session?.observation?.notes.condition;
+  const problem =
+    item?.result?.outcome === "fail" || failed || condition === "problem";
   const done =
     !!item &&
     ["pass", "fail"].includes(item.result?.outcome || "") &&
@@ -45,12 +54,25 @@ export function pointEvidence(p: Point) {
       ? "Bermasalah"
       : done
         ? "Baik"
-        : item?.result?.outcome
+        : item?.result?.outcome || condition === "attention"
           ? "Perlu Perhatian"
           : "Belum Diperiksa",
   };
 }
-export function samplingFloors(items: Item[] = []): Floor[] {
+export function samplingFloors(
+  items: Item[] = [],
+  coverage?: SamplingCoverage,
+): Floor[] {
+  if (coverage)
+    return coverage.floors.map((floor) => ({
+      id: floor.id,
+      name: floor.name,
+      points: floor.points.map((session) => ({
+        id: session.id,
+        name: session.name,
+        session,
+      })),
+    }));
   const floors: Floor[] = [];
   for (const item of items.filter((i) => i.device.device_type === "ap")) {
     const name = item.floor || "Belum dicatat";
@@ -74,7 +96,9 @@ export function samplingFloors(items: Item[] = []): Floor[] {
   return floors;
 }
 export function progress(v: Visit) {
-  const points = samplingFloors(v.devices).flatMap((f) => f.points);
+  const points = samplingFloors(v.devices, v.sampling_coverage).flatMap(
+    (f) => f.points,
+  );
   return {
     total: points.length,
     done: points.filter((p) => pointEvidence(p).done).length,

@@ -1,0 +1,129 @@
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { ApiClient, ApiError } from "../src/services/api";
+import { store } from "../src/services/storage";
+import {
+  submitObservation,
+  observationKey,
+} from "../src/services/observationOutbox";
+import type { Point, PointDraft, Visit } from "../src/types";
+
+const records = vi.hoisted(() => new Map<string, unknown>());
+vi.mock("../src/services/storage", () => ({
+  store: {
+    get: vi.fn(async (key: string) => records.get(key)),
+    put: vi.fn(async (key: string, value: unknown) => {
+      records.set(key, structuredClone(value));
+    }),
+    remove: vi.fn(async (key: string) => {
+      records.delete(key);
+    }),
+  },
+}));
+const visit = { id: "visit", version: 3 } as Visit;
+const point: Point = {
+  id: "session-a",
+  name: "A",
+  session: {
+    id: "session-a",
+    sampling_point_id: "master-a",
+    name: "A",
+    location: null,
+    device: null,
+    status: "untested",
+    version: 1,
+  },
+};
+const draft: PointDraft = {
+  status: "good",
+  notes: "Catatan nyata",
+  updatedAt: "2026-11-16T00:00:00Z",
+};
+beforeEach(() => {
+  records.clear();
+  vi.clearAllMocks();
+});
+afterEach(() => vi.restoreAllMocks());
+function client() {
+  const save = vi.fn().mockImplementation(async (_visit, _point, data) => ({
+    visit: { ...visit, version: 4 },
+    observation: { id: data.id, notes: data.notes },
+    replayed: false,
+  }));
+  return { save, api: { saveObservation: save } as unknown as ApiClient };
+}
+describe("durable per-session notes outbox", () => {
+  it("queues offline and retries the exact captured payload even after edits and reload", async () => {
+    const { api, save } = client();
+    await expect(
+      submitObservation(api, "account-a:", visit, point, draft, false),
+    ).rejects.toThrow("antrean");
+    expect(save).not.toHaveBeenCalled();
+    const pending = records.get(observationKey("account-a:", point.id));
+    await submitObservation(
+      api,
+      "account-a:",
+      { ...visit, version: 99 },
+      point,
+      { ...draft, notes: "New draft" },
+      true,
+    );
+    expect(save.mock.calls[0][2]).toEqual(
+      (pending as { payload: unknown }).payload,
+    );
+    expect(save.mock.calls[0][2].notes.notes).toBe("Catatan nyata");
+    expect(records.size).toBe(0);
+  });
+  it("keeps UUID after a lost acknowledgment and does not offer unverified rebasing", async () => {
+    const { api, save } = client();
+    save.mockRejectedValueOnce(new ApiError("Lost response"));
+    await expect(
+      submitObservation(api, "scope:", visit, point, draft, true),
+    ).rejects.toThrow("Lost response");
+    const first = save.mock.calls[0][2];
+    await expect(
+      submitObservation(api, "scope:", visit, point, draft, true, true),
+    ).rejects.toThrow("request sebelumnya");
+    await submitObservation(api, "scope:", visit, point, draft, true);
+    expect(save.mock.calls[1][2]).toEqual(first);
+  });
+  it("preserves draft base versions, then permits explicit rebase after server conflict and review", async () => {
+    const { api, save } = client();
+    save.mockRejectedValueOnce(new ApiError("Conflict", 409));
+    await expect(
+      submitObservation(
+        api,
+        "scope:",
+        visit,
+        point,
+        { ...draft, baseVisitVersion: 1, baseSessionVersion: 1 },
+        true,
+      ),
+    ).rejects.toThrow("Conflict");
+    expect(save.mock.calls[0][2].expected_visit_version).toBe(1);
+    const previousId = save.mock.calls[0][2].id;
+    await submitObservation(api, "scope:", visit, point, draft, true, true);
+    expect(save.mock.calls[1][2].expected_visit_version).toBe(3);
+    expect(save.mock.calls[1][2].id).not.toBe(previousId);
+  });
+  it("does not send if durable local persistence fails and isolates account queues", async () => {
+    const { api, save } = client();
+    vi.mocked(store.put).mockRejectedValueOnce(new Error("quota"));
+    await expect(
+      submitObservation(api, "scope:", visit, point, draft, true),
+    ).rejects.toThrow("quota");
+    expect(save).not.toHaveBeenCalled();
+    await expect(
+      submitObservation(api, "account-a:", visit, point, draft, false),
+    ).rejects.toThrow("antrean");
+    await submitObservation(
+      api,
+      "account-b:",
+      visit,
+      point,
+      { ...draft, notes: "Other account" },
+      true,
+    );
+    expect(records.has(observationKey("account-a:", point.id))).toBe(true);
+    expect(save.mock.calls[0][2].notes.notes).toBe("Other account");
+  });
+});

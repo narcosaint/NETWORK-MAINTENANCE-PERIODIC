@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, date
-from sqlalchemy import String, Text, ForeignKey, DateTime, Date, Float, CheckConstraint, UniqueConstraint, JSON, func
+from sqlalchemy import String, Text, ForeignKey, ForeignKeyConstraint, DateTime, Date, Float, CheckConstraint, UniqueConstraint, JSON, Index, func, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -227,3 +228,124 @@ class NetworkSpeedtest(Base):
     context: Mapped[dict] = mapped_column(JSON)
     metrics: Mapped[dict | None] = mapped_column(JSON)
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class HotelFloor(Base):
+    __tablename__ = 'hotel_floors'
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    hotel_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('hotels.id', ondelete='RESTRICT'), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    position: Mapped[int] = mapped_column()
+    default_sampling_count: Mapped[int] = mapped_column(server_default='4')
+    version: Mapped[int] = mapped_column(server_default='1')
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("trim(name) <> ''", name='ck_floor_name'),
+        CheckConstraint('position >= 0', name='ck_floor_position'),
+        CheckConstraint('default_sampling_count > 0', name='ck_floor_target'),
+        CheckConstraint('version >= 1', name='ck_floor_version'),
+        Index('uq_hotel_floors_active_name', hotel_id, func.lower(func.trim(name)), unique=True,
+              postgresql_where=text('archived_at IS NULL'), sqlite_where=text('archived_at IS NULL')),
+        Index('ix_hotel_floors_active_order', hotel_id, position, id,
+              postgresql_where=text('archived_at IS NULL'), sqlite_where=text('archived_at IS NULL')),
+    )
+
+
+class SamplingPoint(Base):
+    __tablename__ = 'sampling_points'
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    floor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('hotel_floors.id', ondelete='RESTRICT'), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    location: Mapped[str | None] = mapped_column(Text)
+    position: Mapped[int] = mapped_column()
+    device_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('devices.id', ondelete='RESTRICT'), index=True)
+    version: Mapped[int] = mapped_column(server_default='1')
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("trim(name) <> ''", name='ck_point_name'),
+        CheckConstraint('position >= 0', name='ck_point_position'),
+        CheckConstraint('version >= 1', name='ck_point_version'),
+        Index('uq_sampling_points_active_name', floor_id, func.lower(func.trim(name)), unique=True,
+              postgresql_where=text('archived_at IS NULL'), sqlite_where=text('archived_at IS NULL')),
+        Index('ix_sampling_points_active_order', floor_id, position, id,
+              postgresql_where=text('archived_at IS NULL'), sqlite_where=text('archived_at IS NULL')),
+    )
+
+
+class SamplingCoverage(Base):
+    __tablename__ = 'sampling_coverages'
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    hotel_visit_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('hotel_visits.id', ondelete='RESTRICT'))
+    period: Mapped[date] = mapped_column(Date)
+    hotel_snapshot: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), 'postgresql'))
+    photo_policy_snapshot: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), 'postgresql'))
+    schema_version: Mapped[int] = mapped_column(server_default='1')
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey('users.id', ondelete='RESTRICT'), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint('hotel_visit_id', name='uq_coverage_visit'),
+        CheckConstraint('EXTRACT(DAY FROM period) = 1', name='ck_coverage_period').ddl_if(dialect='postgresql'),
+        CheckConstraint('schema_version = 1', name='ck_coverage_schema_version'),
+    )
+
+
+class SamplingCoverageFloor(Base):
+    __tablename__ = 'sampling_coverage_floors'
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    coverage_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('sampling_coverages.id', ondelete='RESTRICT'))
+    floor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('hotel_floors.id', ondelete='RESTRICT'), index=True)
+    name_snapshot: Mapped[str] = mapped_column(String(100))
+    position_snapshot: Mapped[int] = mapped_column()
+    target_count: Mapped[int] = mapped_column()
+    __table_args__ = (
+        UniqueConstraint('coverage_id', 'floor_id', name='uq_coverage_floor'),
+        UniqueConstraint('id', 'coverage_id', name='uq_coverage_floor_scope'),
+        CheckConstraint("trim(name_snapshot) <> ''", name='ck_coverage_floor_name'),
+        CheckConstraint('position_snapshot >= 0', name='ck_coverage_floor_position'),
+        CheckConstraint('target_count > 0', name='ck_coverage_floor_target'),
+    )
+
+
+class SamplingSession(Base):
+    __tablename__ = 'sampling_sessions'
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    coverage_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('sampling_coverages.id', ondelete='RESTRICT'))
+    coverage_floor_id: Mapped[uuid.UUID] = mapped_column()
+    sampling_point_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('sampling_points.id', ondelete='RESTRICT'), index=True)
+    point_snapshot: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), 'postgresql'))
+    position_snapshot: Mapped[int] = mapped_column()
+    status: Mapped[str] = mapped_column(String(20), server_default='untested')
+    version: Mapped[int] = mapped_column(server_default='1')
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        ForeignKeyConstraint(['coverage_floor_id', 'coverage_id'],
+            ['sampling_coverage_floors.id', 'sampling_coverage_floors.coverage_id'],
+            name='fk_session_coverage_floor', ondelete='RESTRICT'),
+        UniqueConstraint('coverage_id', 'sampling_point_id', name='uq_session_point'),
+        CheckConstraint('position_snapshot >= 0', name='ck_session_position'),
+        CheckConstraint('version >= 1', name='ck_session_version'),
+        CheckConstraint("status IN ('untested', 'good', 'attention', 'problem')", name='ck_session_status'),
+        Index('ix_sampling_sessions_coverage_floor_id_coverage_id', 'coverage_floor_id', 'coverage_id'),
+        Index('ix_sampling_sessions_coverage_id_status', 'coverage_id', 'status'),
+    )
+
+
+class SamplingObservation(Base):
+    """Append-only client observation; a reported source is not radio attestation."""
+    __tablename__ = 'sampling_observations'
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('sampling_sessions.id', ondelete='RESTRICT'))
+    actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('users.id', ondelete='RESTRICT'), index=True)
+    session_version: Mapped[int] = mapped_column()
+    visit_version: Mapped[int] = mapped_column()
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    payload: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), 'postgresql'))
+    __table_args__ = (
+        UniqueConstraint('session_id', 'session_version', name='uq_observation_session_version'),
+        CheckConstraint('session_version >= 2', name='ck_observation_session_version'),
+        CheckConstraint('visit_version >= 1', name='ck_observation_visit_version'),
+    )

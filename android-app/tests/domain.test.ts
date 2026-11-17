@@ -14,7 +14,7 @@ import {
   enqueueLocal,
   flushLocal,
 } from "../src/services/storage";
-import type { Item, Report, Visit } from "../src/types";
+import type { Item, Report, Visit, SamplingCoverage } from "../src/types";
 import { vi, afterEach } from "vitest";
 const item: Item = {
   id: "point1",
@@ -27,6 +27,57 @@ const item: Item = {
   speedtests: [],
 };
 afterEach(() => vi.unstubAllGlobals());
+describe("server coverage", () => {
+  const coverage: SamplingCoverage = {
+    id: "coverage",
+    hotel_visit_id: "visit",
+    period: "2026-11-01",
+    completion_available: false,
+    photo_policy: { sampling_categories: [], infrastructure_categories: [] },
+    floors: [
+      {
+        id: "floor-snapshot",
+        floor_id: "master-floor",
+        name: "Snapshot lantai",
+        target_count: 2,
+        points: ["a", "b"].map((id) => ({
+          id,
+          sampling_point_id: "master-" + id,
+          name: "Titik " + id,
+          location: null,
+          device: { id: "ap1", name: "AP sama", mac_address: null },
+          status: "untested",
+          version: 1,
+        })),
+      },
+    ],
+  };
+  it("uses snapshot locations without copying AP evidence or padding the frozen scope", () => {
+    const floors = samplingFloors([item], coverage);
+    expect(floors[0].name).toBe("Snapshot lantai");
+    expect(floors[0].points.map((p) => p.id)).toEqual(["a", "b"]);
+    expect(
+      floors[0].points.every(
+        (p) => p.session && !p.item && !pointEvidence(p).done,
+      ),
+    ).toBe(true);
+  });
+  it("accepts nullable coverage responses without weakening ordinary API validation", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ coverage_enabled: true })),
+      )
+      .mockResolvedValueOnce(new Response("null"))
+      .mockResolvedValueOnce(new Response("null"));
+    vi.stubGlobal("fetch", fetcher);
+    const api = new ApiClient("/api");
+    expect(await api.samplingCoverage("visit")).toBeNull();
+    await expect(api.visit("visit")).rejects.toThrow(
+      "Respons server tidak valid",
+    );
+  });
+});
 describe("physical sampling evidence", () => {
   it("pads to 4 without inventing server items or mutating the source", () => {
     const floors = samplingFloors([item]);

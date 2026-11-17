@@ -1,5 +1,13 @@
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
-import type { CheckIn, Hotel, Report, User, Visit } from "../types";
+import type {
+  CheckIn,
+  Hotel,
+  Report,
+  User,
+  Visit,
+  SamplingCoverage,
+} from "../types";
+import type { ObservationSubmission, SamplingObservation } from "../types";
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -44,7 +52,12 @@ export class ApiClient {
   setToken(token: string | null) {
     this.token = token;
   }
-  async request<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+  async request<T>(
+    path: string,
+    method = "GET",
+    body?: unknown,
+    nullable = false,
+  ): Promise<T> {
     const headers: Record<string, string> = {
       Accept: "application/json",
       ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
@@ -110,7 +123,10 @@ export class ApiClient {
                   : "Server gagal memproses permintaan.";
       throw new ApiError(message, status);
     }
-    if (status !== 204 && (data === null || typeof data !== "object"))
+    if (
+      status !== 204 &&
+      ((data === null && !nullable) || typeof data !== "object")
+    )
       throw new ApiError(
         "Respons server tidak valid. Periksa konfigurasi API.",
       );
@@ -147,6 +163,22 @@ export class ApiClient {
   visit(id: string) {
     return this.request<Visit>("/hotel-visits/" + encodeURIComponent(id));
   }
+  async samplingCoverage(id: string): Promise<SamplingCoverage | null> {
+    let capability: { coverage_enabled: boolean };
+    try {
+      capability = await this.request("/sampling-capabilities");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
+    if (!capability.coverage_enabled) return null;
+    return this.request<SamplingCoverage | null>(
+      `/hotel-visits/${encodeURIComponent(id)}/sampling-coverage`,
+      "GET",
+      undefined,
+      true,
+    );
+  }
   checkIn(id: string, data: CheckIn) {
     return this.request<Visit>(
       `/hotel-visits/${encodeURIComponent(id)}/check-in`,
@@ -167,5 +199,20 @@ export class ApiClient {
     } finally {
       this.token = null;
     }
+  }
+  saveObservation(
+    visitId: string,
+    sessionId: string,
+    data: ObservationSubmission,
+  ) {
+    return this.request<{
+      visit: Visit;
+      observation: SamplingObservation;
+      replayed: boolean;
+    }>(
+      `/hotel-visits/${encodeURIComponent(visitId)}/sampling-sessions/${encodeURIComponent(sessionId)}/observations`,
+      "POST",
+      data,
+    );
   }
 }

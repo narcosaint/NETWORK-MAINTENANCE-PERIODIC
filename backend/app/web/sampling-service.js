@@ -45,7 +45,7 @@ function samplingMetrics(item){
  return {signal:b?.signal_dbm??null,band:b?samplingBand(b.key):run?samplingBand(run.band):null,download:run?.metrics?.download_mbps??b?.bandwidth_mbps??null,
   source:run?'Speedtest tersimpan'+(run.context?.transport==='direct_https'?'':' · diagnostik tunnel/lokal'):b?'Input manual tersimpan':null,time:run?.finished_at||run?.created_at||null};
 }
-function samplingStatus(point,draft){return draft?.status||({pass:'good',fail:'problem',not_applicable:'not_applicable'})[point.item?.result?.outcome]||'untested';}
+function samplingStatus(point,draft){return draft?.status||point.session?.observation?.notes.condition||({pass:'good',fail:'problem',not_applicable:'not_applicable'})[point.item?.result?.outcome]||'untested';}
 const samplingStatusLabels={untested:'Belum Diperiksa',good:'Baik',attention:'Perlu Perhatian',problem:'Bermasalah',not_applicable:'Tidak berlaku'};
 function samplingFloors(visit,configuration,drafts){
  const floors=(configuration||[]).map(f=>({...f,points:[]}));

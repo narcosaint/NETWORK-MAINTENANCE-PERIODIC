@@ -69,3 +69,12 @@ app.include_router(hotel_router)
 
 from app.speedtest_api import router as speedtest_router
 app.include_router(speedtest_router)
+
+from app.sampling_api import router as sampling_router
+app.include_router(sampling_router)
+
+from app.sampling_coverage_api import router as coverage_router
+app.include_router(coverage_router)
+
+from app.sampling_observation_api import router as observation_router
+app.include_router(observation_router)

@@ -17,3 +17,8 @@ def test_login_page_and_assets_are_same_origin_with_security_headers():
         assert content_type in asset.headers['content-type']
         assert asset.headers['x-content-type-options'] == 'nosniff'
     assert client.get('/assets/missing.js').status_code == 404
+    master = client.get('/assets/sampling-master.js')
+    assert master.status_code == 200
+    assert 'javascript' in master.headers['content-type']
+    assert 'sampling-master.js?v=coverage-1' in response.text
+    assert client.get('/assets/sampling-observations.js').status_code == 200

@@ -1030,3 +1030,6 @@ progress::-moz-progress-bar {
     scroll-padding-block: 12px;
   }
 }
+
+.wifi-graph{display:block;width:100%;height:auto;color:var(--muted,#53675f)}
+.wifi-networks{list-style:none;padding:0;margin:0;display:grid;gap:12px}.wifi-networks li{display:grid;gap:4px;overflow-wrap:anywhere;padding:12px;border-bottom:1px solid #dce8e2}.wifi-networks span,.wifi-networks small{font-size:12px;color:#526b61}

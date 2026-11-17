@@ -123,6 +123,7 @@ export type Visit = {
   };
   site?: Hotel;
   devices?: Item[];
+  sampling_coverage?: SamplingCoverage;
 };
 export type ReportDraft = {
   report: Report;
@@ -130,6 +131,9 @@ export type ReportDraft = {
   updatedAt: string;
 };
 export type PointDraft = {
+  radio?: import("./services/wifi").RadioDraft;
+  baseVisitVersion?: number;
+  baseSessionVersion?: number;
   location?: string;
   notes?: string;
   findings?: string;
@@ -146,7 +150,12 @@ export type LocalPhoto = {
   createdAt: string;
   blob: Blob;
 };
-export type Point = { id: string; name: string; item?: Item };
+export type Point = {
+  id: string;
+  name: string;
+  item?: Item;
+  session?: SamplingCoverage["floors"][number]["points"][number];
+};
 export type Floor = { id: string; name: string; points: Point[] };
 export type CheckIn = {
   expected_version: number;
@@ -155,4 +164,67 @@ export type CheckIn = {
   longitude?: number;
   accuracy_m?: number;
   gps_exception_reason?: string;
+};
+
+export type SamplingCoverage = {
+  id: string;
+  hotel_visit_id: string;
+  period: string;
+  completion_available: false;
+  observations_enabled?: boolean;
+  photo_policy: {
+    sampling_categories: string[];
+    infrastructure_categories: string[];
+  };
+  floors: {
+    id: string;
+    floor_id: string;
+    name: string;
+    target_count: number;
+    points: {
+      id: string;
+      sampling_point_id: string;
+      name: string;
+      location: string | null;
+      device: { id: string; name: string; mac_address: string | null } | null;
+      status: string;
+      version: number;
+      observation?: SamplingObservation | null;
+    }[];
+  }[];
+};
+
+export type SamplingNotes = {
+  condition: "untested" | "good" | "attention" | "problem";
+  notes: string;
+  findings: string;
+  action: string;
+  recommendation: string;
+};
+export type ObservationSubmission = {
+  id: string;
+  expected_visit_version: number;
+  expected_session_version: number;
+  captured_at: string;
+  notes: SamplingNotes;
+  wifi_connection?: ReturnType<
+    typeof import("./services/wifi").radioPayload
+  >["wifi_connection"];
+  wifi_scan?: ReturnType<
+    typeof import("./services/wifi").radioPayload
+  >["wifi_scan"];
+};
+export type SamplingObservation = {
+  id: string;
+  session_id: string;
+  session_version: number;
+  visit_version: number;
+  captured_at: string;
+  received_at: string;
+  notes: SamplingNotes;
+  measurement_trust: "client_reported";
+  radio_verified: false;
+  completion_accepted: false;
+  wifi_connection?: ObservationSubmission["wifi_connection"];
+  wifi_scan?: ObservationSubmission["wifi_scan"];
 };

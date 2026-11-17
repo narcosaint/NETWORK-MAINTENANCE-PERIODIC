@@ -1,8 +1,11 @@
-# Hotel Maintenance — Android UI (Phase 3)
+# Hotel Maintenance — Android
 
 Aplikasi React + TypeScript + Capacitor terpisah dari web existing. Source native
-Android tersedia di `android/`. Tidak mengubah backend, PostgreSQL, migration,
-Docker, jaringan atau deployment. Referensi lengkap: `../docs/PHASE-3-ANDROID-UI.md`.
+Android tersedia di `android/`. Perkembangan terbaru: plugin Wi-Fi, scan, grafik,
+cache dan draf pengukuran per sesi tersedia pada source Phase 4. Lihat
+[`PHASE-4-NATIVE-WIFI.md`](../docs/PHASE-4-NATIVE-WIFI.md).
+Dokumen dan batas Phase 3 di bawah adalah baseline sebelum integrasi fondasi/observasi.
+Tidak ada deployment atau perubahan Docker/jaringan produksi.
 
 ## Menjalankan source
 
@@ -71,10 +74,13 @@ Perintah `adb` di atas dijalankan dari direktori `android-app`, setelah kembali
 keluar dari `android/`. Build release/signing/Play Store tidak dikerjakan. Keystore,
 password signing dan konfigurasi perangkat bukan bagian source.
 
-**Status verifikasi environment saat ini:** build frontend dan `cap sync android`
-lulus. JDK/Android SDK/emulator tidak tersedia di server pengembangan ini; APK belum
-dibangun atau diuji pada Android fisik. Panduan di atas belum dianggap bukti native
-build lulus.
+**Status verifikasi 16 November 2026:** build frontend, `cap sync android`, lint,
+23 test frontend, kompilasi Java plugin dan unit test Gradle lulus. JDK 21 serta
+Android SDK 36 disiapkan hanya di /tmp. APK debug Phase 4 berhasil dibangun dan
+tersimpan di `../artifacts/android/hotel-maintenance-phase4-debug.apk`.
+Emulator/perangkat fisik belum tersedia;
+uji izin, radio dan lifecycle HP tetap diperlukan. Status artifact APK dicatat
+dalam dokumen Phase 4.
 
 ## Integrasi dan batas Phase 3
 

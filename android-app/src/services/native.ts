@@ -1,49 +1,8 @@
 import { Capacitor } from "@capacitor/core";
 import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 import { Geolocation } from "@capacitor/geolocation";
-export type Availability<T> =
-  { available: true; data: T } | { available: false; reason: string };
-export type WifiConnection = {
-  ssid: string | null;
-  bssid: string | null;
-  frequencyMhz: number | null;
-  channel: number | null;
-  band: "2.4 GHz" | "5 GHz" | null;
-  rssiDbm: number | null;
-  linkSpeedMbps: number | null;
-  ipAddress: string | null;
-  gateway: string | null;
-  observedAt: string;
-  source: "android_native";
-};
-export type WifiScan = {
-  ssid: string;
-  bssid: string;
-  rssiDbm: number;
-  frequencyMhz: number;
-  channel: number;
-  observedAt: string;
-  cached: boolean;
-};
-export interface WifiService {
-  connection(): Promise<Availability<WifiConnection>>;
-  scan(band: "2.4 GHz" | "5 GHz"): Promise<Availability<WifiScan[]>>;
-}
-// Phase 4 implements this interface using Android APIs. No radio plugin is registered yet.
-export const wifiService: WifiService = {
-  async connection() {
-    return {
-      available: false,
-      reason: "Belum tersedia · integrasi Wi-Fi native menunggu Phase 4.",
-    };
-  },
-  async scan() {
-    return {
-      available: false,
-      reason: "Belum tersedia · belum ada hasil scan Android.",
-    };
-  },
-};
+export { wifiService } from "./wifi";
+export type { Availability, WifiConnection, WifiScan } from "./wifi";
 export const gpsService = {
   async current() {
     const result = await Geolocation.getCurrentPosition({

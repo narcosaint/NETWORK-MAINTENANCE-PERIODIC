@@ -45,6 +45,7 @@ def run():
                 if route.request.headers.get('authorization')!='Bearer fixture-token':api_errors.append(path)
                 if method!='GET':writes.append((method,path,route.request.post_data_json))
                 if path=='/hotels':respond([HOTEL]);return
+                if path=='/sampling-capabilities':respond({'coverage_enabled':False,'master_enabled':False});return
                 if path=='/hotel-visits':respond([] if empty[0] or parse_qs(url.query).get('offset')!=['0'] else [visit]);return
                 if path=='/hotel-visits/visit-qa':respond(visit);return
                 if path.endswith('/check-in'):

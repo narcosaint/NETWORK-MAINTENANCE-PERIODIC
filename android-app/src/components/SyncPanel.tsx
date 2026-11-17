@@ -61,7 +61,7 @@ export function SyncPanel({
                 {draftVersion !== undefined
                   ? `Draf laporan versi ${draftVersion}. `
                   : ""}
-                Catatan dan foto sampling disimpan di perangkat; belum
+                Draf catatan dan foto sampling disimpan di perangkat; belum
                 tersinkron ke server dan tidak dihitung sebagai progress server.
               </p>
             </>
@@ -72,7 +72,7 @@ export function SyncPanel({
             </p>
           )}
           <p>
-            Laporan utama dikirim melalui tombol simpan. Tidak ada sinkronisasi
+            Laporan utama dan catatan sesi dikirim melalui tombol simpan yang tersedia. Tidak ada sinkronisasi
             otomatis.
           </p>
         </div>

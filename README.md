@@ -160,3 +160,24 @@ Source React + Capacitor tersedia di [`android-app/`](android-app/README.md).
 Lihat [hasil dan batas integrasi Phase 3](docs/PHASE-3-ANDROID-UI.md) untuk build APK,
 verifikasi frontend, draf lokal, serta fitur native/sinkronisasi yang belum tersedia.
 Belum ada APK release atau deployment Android.
+
+## Fondasi sampling server — source lokal
+
+Master lantai/titik dan snapshot cakupan kunjungan sudah mempunyai model/API serta
+integrasi Web/Android. Snapshot mempertahankan lokasi historis dan sesi berbeda
+untuk tiap titik. Pengukuran per sesi dan submit V2 belum tersedia; alur kunjungan
+legacy serta Backbone FO/wireless dan LAN tetap dipertahankan.
+Fitur default nonaktif dan migration 0010 masih draft di luar head Alembic.
+Belum diterapkan ke database/deployment. Lihat
+[cakupan implementasi dan pengujian](docs/SAMPLING-MASTER-IMPLEMENTATION.md).
+
+Catatan/temuan/tindakan per sesi sekarang dapat dikirim Web/Android dengan
+antrean lokal dan retry UUID yang sama. Kontrak penyimpanan observasi Wi-Fi
+tersedia; pengumpulan native dan verifikasi radio belum diimplementasikan.
+Draft 0011 dan gate write masih nonaktif; lihat
+[batas dan verifikasi observasi](docs/SAMPLING-OBSERVATIONS.md).
+
+Source [Phase 4 Wi-Fi native](docs/PHASE-4-NATIVE-WIFI.md) menambah plugin Android,
+scanner 2.4/5 GHz, grafik serta draf capture per sesi. Kompilasi Java dan frontend
+lulus; pengujian radio HP fisik masih wajib. Fondasi juga diuji pada PostgreSQL
+18.6 sementara melalui Unix socket privat, tanpa Docker atau database produksi.

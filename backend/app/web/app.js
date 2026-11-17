@@ -17,6 +17,7 @@ async function api(path, options={}){
   if(response.status===204)return null;
   const data=await response.json().catch(()=>null);
   if(!response.ok){
+    try{
     if(response.status===401&&state.token){clearSession();$('#login-error').textContent='Sesi berakhir. Silakan masuk kembali.';}
     if(response.status===409)throw new Error(path.startsWith('/hotel-visits')&&typeof data?.detail==='string'?data.detail:'Data sudah berubah atau operasi tidak sesuai status saat ini. Muat ulang data sebelum melanjutkan.');
     if(response.status===401)throw new Error('Username atau password tidak sesuai.');
@@ -25,6 +26,7 @@ async function api(path, options={}){
     if(response.status===429)throw new Error(path.includes('speedtests')&&typeof data?.detail==='string'?data.detail:'Terlalu banyak percobaan. Tunggu satu menit.');
     if(Array.isArray(data?.detail))throw new Error(data.detail.map(e=>`${e.loc.slice(1).join('.')}: ${e.msg}`).join('\n'));
     throw new Error(data?.detail || 'Server tidak dapat memproses permintaan.');
+    }catch(error){error.status=response.status;throw error;}
   }
   return data;
 }

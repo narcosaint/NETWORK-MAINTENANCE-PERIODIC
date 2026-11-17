@@ -41,6 +41,13 @@ import { ReportForm } from "./ReportForm";
 import { SamplingDetail } from "./SamplingDetail";
 import { SyncPanel } from "../components/SyncPanel";
 import { ReviewInspectionSummary } from "../components/ReviewInspectionSummary";
+import { SamplingCoveragePanel } from "../components/SamplingCoveragePanel";
+import {
+  submitObservation,
+  observationMatchesDraft,
+  observationKey,
+  type PendingObservation,
+} from "../services/observationOutbox";
 type Props = {
   api: ApiClient;
   user: User;
@@ -72,9 +79,23 @@ export function VisitWorkspace({
     [cached, setCached] = useState(false),
     [pointId, setPointId] = useState(""),
     [gpsException, setGpsException] = useState("");
+  const [noteConflict, setNoteConflict] = useState(false);
   const writes = useRef(Promise.resolve()),
     pending = useRef(0),
     reportVersion = useRef<number | null>(null);
+  useEffect(() => {
+    let active = true;
+    if (pointId)
+      void store
+        .get<PendingObservation>(observationKey(key, pointId))
+        .then((pending) => {
+          if (active) setNoteConflict(!!pending?.conflict);
+        })
+        .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [key, pointId]);
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -168,7 +189,7 @@ export function VisitWorkspace({
     );
   const canEdit = editable(visit, user.id),
     totals = progress(visit),
-    floors = samplingFloors(visit.devices),
+    floors = samplingFloors(visit.devices, visit.sampling_coverage),
     points = floors.flatMap((f) => f.points),
     point = points.find((p) => p.id === pointId),
     report = draft?.report || visit.report;
@@ -229,6 +250,52 @@ export function VisitWorkspace({
       setBusy(false);
     }
   };
+  const savePointNotes = async (rebase = false) => {
+    if (!point?.session || !canEdit) return;
+    setBusy(true);
+    setError("");
+    try {
+      await writes.current;
+      const result = await submitObservation(
+        api,
+        key,
+        visit,
+        point,
+        notes[point.id],
+        online,
+        rebase,
+      );
+      await accept(result.visit);
+      if (
+        observationMatchesDraft(
+          notes[point.id],
+          point.session.observation?.notes,
+          result.observation,
+        )
+      ) {
+        const next = { ...notes };
+        delete next[point.id];
+        await store.put(key + "notes", next);
+        setNotes(next);
+      }
+      setNoteConflict(false);
+      setSync(
+        "Catatan titik tersimpan di server. Foto lokal dan pengujian belum tersinkron.",
+      );
+    } catch (error) {
+      setError((error as Error).message);
+      try {
+        setNoteConflict(
+          !!(await store.get<PendingObservation>(observationKey(key, point.id)))
+            ?.conflict,
+        );
+      } catch {
+        /* Keep original error. */
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
   const local = !!draft || Object.keys(notes).length > 0 || photos.length > 0;
   return (
     <div className="stack">
@@ -258,6 +325,13 @@ export function VisitWorkspace({
         draftVersion={draft?.version}
         versionConflict={!!draft && draft.version !== visit.version}
       />
+      {visit.sampling_coverage &&
+        ["hotel", "floors", "review"].includes(route) && (
+          <SamplingCoveragePanel
+            coverage={visit.sampling_coverage}
+            cached={cached}
+          />
+        )}
       {route === "hotel" ? (
         <>
           <Card
@@ -370,9 +444,15 @@ export function VisitWorkspace({
           <Card>
             <Meter {...totals} />
             <p className="muted">
-              Default 4 titik per lantai dari AP kunjungan. Target kosong belum
-              menjadi record server. Konfigurasi lantai lokal Web belum
-              tersinkron ke Android.
+              {visit.sampling_coverage ? (
+                "Cakupan kunjungan tersimpan. Setiap titik mempunyai sesi sendiri; pengukuran dan submit V2 belum tersedia."
+              ) : (
+                <>
+                  Default 4 titik per lantai dari AP kunjungan. Target kosong
+                  belum menjadi record server. Konfigurasi lantai lokal Web
+                  belum tersinkron ke Android.
+                </>
+              )}
             </p>
           </Card>
           {floors.map((f) => (
@@ -395,13 +475,17 @@ export function VisitWorkspace({
                       key={p.id}
                       onClick={() => {
                         setPointId(p.id);
+                        setNoteConflict(false);
                         go("point");
                       }}
                     >
                       <span>
                         {notes[p.id]?.location || p.name}
                         <small>
-                          {p.item?.device.name ||
+                          {p.session?.device?.name ||
+                            (p.session
+                              ? "AP belum dihubungkan"
+                              : p.item?.device.name) ||
                             "Target lokal · belum terhubung"}
                         </small>
                       </span>
@@ -433,11 +517,49 @@ export function VisitWorkspace({
           point={point}
           draft={notes[point.id]}
           photos={photos.filter((p) => p.pointId === point.id)}
+          captureRadio={
+            point.session
+              ? async (radio) => {
+                  if (!canEdit)
+                    throw new Error("Kunjungan hanya dapat dibaca.");
+                  const value = {
+                    ...notes[point.id],
+                    radio: { ...notes[point.id]?.radio, ...radio },
+                    baseVisitVersion:
+                      notes[point.id]?.baseVisitVersion ?? visit.version,
+                    baseSessionVersion:
+                      notes[point.id]?.baseSessionVersion ??
+                      point.session?.version,
+                    updatedAt: new Date().toISOString(),
+                  };
+                  const next = { ...notes, [point.id]: value };
+                  await persist(() => store.put(key + "notes", next));
+                  setNotes(next);
+                }
+              : undefined
+          }
           editable={canEdit}
           busy={busy}
+          saveNotes={
+            point.session && visit.sampling_coverage?.observations_enabled
+              ? () => void savePointNotes()
+              : undefined
+          }
+          rebaseNotes={
+            noteConflict ? () => void savePointNotes(true) : undefined
+          }
           change={(value) => {
             if (!canEdit) return;
-            const next = { ...notes, [point.id]: value };
+            const next = {
+              ...notes,
+              [point.id]: {
+                ...value,
+                baseVisitVersion:
+                  notes[point.id]?.baseVisitVersion ?? visit.version,
+                baseSessionVersion:
+                  notes[point.id]?.baseSessionVersion ?? point.session?.version,
+              },
+            };
             setNotes(next);
             void persist(() => store.put(key + "notes", next));
           }}

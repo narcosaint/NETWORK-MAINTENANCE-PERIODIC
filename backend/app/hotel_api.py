@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
-from sqlalchemy import select, update, delete, func
+from sqlalchemy import select, update, delete, func, inspect
 from sqlalchemy.orm import Session
 from app import models as m, schemas as s, hotel_schemas as hs
 from app.api import db, current, supervisor, get, save
@@ -72,8 +72,14 @@ def visit_info(visit):
 
 
 def detail(session, visit):
-    return {**visit_info(visit), 'site': s.HotelOutput.model_validate(get(session, m.Hotel, visit.hotel_id), from_attributes=True), 'devices': [device_info(session, item) for item in session.scalars(
+    result = {**visit_info(visit), 'site': s.HotelOutput.model_validate(get(session, m.Hotel, visit.hotel_id), from_attributes=True), 'devices': [device_info(session, item) for item in session.scalars(
         select(m.HotelVisitDevice).where(m.HotelVisitDevice.visit_id == visit.id).order_by(m.HotelVisitDevice.id))]}
+    if inspect(session.connection()).has_table('sampling_coverages'):
+        coverage = session.scalar(select(m.SamplingCoverage).where(m.SamplingCoverage.hotel_visit_id == visit.id))
+        if coverage:
+            from app.sampling_coverage_api import coverage_info
+            result['sampling_coverage'] = coverage_info(session, coverage)
+    return result
 
 
 def event(session, visit, user, action, reason=None):
@@ -263,6 +269,11 @@ async def upload_photo(identifier: UUID, item_id: UUID, expected_version: int, r
 
 
 def complete(session, visit):
+    # The gate may be disabled during rollback; a persisted coverage must still
+    # prevent the legacy validator from accepting an incomplete V2 visit.
+    if inspect(session.connection()).has_table('sampling_coverages') and session.scalar(select(m.SamplingCoverage.id).where(
+            m.SamplingCoverage.hotel_visit_id == visit.id)):
+        raise HTTPException(409, 'Cakupan V2 tersimpan. Submit menunggu integrasi pengukuran per titik dan review PIC.')
     report = hs.HotelReport.model_validate(visit.report)
     if not report.summary or not report.summary.strip() or not report.work_status or not report.backbone_mode:
         raise HTTPException(409, 'Isi ringkasan, hasil pekerjaan dan jenis koneksi backbone')

@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { Camera, Wifi, Zap } from "lucide-react";
+import { Camera, Zap } from "lucide-react";
 import type { LocalPhoto, Point, PointDraft } from "../types";
-import { cameraService, wifiService } from "../services/native";
+import { cameraService } from "../services/native";
+import { radioFromObservation, type RadioDraft } from "../services/wifi";
+import { NativeWifiPanel } from "../components/NativeWifiPanel";
 import { libreSpeedService } from "../services/librespeed";
 import { Badge, Card, Empty, Field, Message } from "../components/ui";
 import { pointEvidence, when } from "../domain";
@@ -13,6 +15,9 @@ export function SamplingDetail({
   addPhoto,
   editable,
   busy,
+  saveNotes,
+  rebaseNotes,
+  captureRadio,
 }: {
   point: Point;
   draft?: PointDraft;
@@ -21,16 +26,30 @@ export function SamplingDetail({
   addPhoto: (file: Blob, category: string, caption: string) => Promise<void>;
   editable: boolean;
   busy: boolean;
+  saveNotes?: () => void;
+  rebaseNotes?: () => void;
+  captureRadio?: (value: RadioDraft) => Promise<void>;
 }) {
   const [tab, setTab] = useState("analyzer"),
-    [band, setBand] = useState<"2.4 GHz" | "5 GHz">("2.4 GHz"),
+    [band] = useState<"2.4 GHz" | "5 GHz">("2.4 GHz"),
     [error, setError] = useState(""),
     [taking, setTaking] = useState(false),
     [category, setCategory] = useState("Foto Access Point"),
     [caption, setCaption] = useState("");
+  const [radioBusy, setRadioBusy] = useState(false);
   const evidence = pointEvidence(point),
-    notes = draft || { updatedAt: "" };
+    savedObservation = point.session?.observation,
+    notes =
+      draft ||
+      (savedObservation
+        ? {
+            ...savedObservation.notes,
+            status: savedObservation.notes.condition,
+            updatedAt: savedObservation.captured_at,
+          }
+        : { updatedAt: "" });
   const saved = point.item?.result?.[band === "2.4 GHz" ? "band_24" : "band_5"];
+  const radio = { ...radioFromObservation(savedObservation), ...draft?.radio };
   const capture = async (file?: Blob) => {
     setTaking(true);
     setError("");
@@ -55,7 +74,9 @@ export function SamplingDetail({
           <p className="eyebrow">DETAIL SAMPLING</p>
           <h2>{draft?.location || point.name}</h2>
           <p className="muted">
-            {point.item?.device.name || "AP belum dipilih"}
+            {point.session?.device?.name ||
+              point.item?.device.name ||
+              "AP belum dipilih"}
           </p>
         </div>
         <Badge
@@ -66,37 +87,14 @@ export function SamplingDetail({
           {evidence.label}
         </Badge>
       </div>
-      <Card title="Connected Network" action={<Wifi size={18} />}>
-        <Badge>Belum tersedia</Badge>
-        <p className="muted">AP Belum Teridentifikasi</p>
-        <dl className="network-grid">
-          {[
-            "SSID",
-            "BSSID",
-            "Frequency",
-            "Channel",
-            "Band",
-            "RSSI (dBm)",
-            "Link speed",
-            "IP Address",
-            "Gateway",
-          ].map((label) => (
-            <div key={label}>
-              <dt>{label}</dt>
-              <dd>Belum tersedia</dd>
-            </div>
-          ))}
-        </dl>
-        <button
-          className="text-button"
-          onClick={async () => {
-            const result = await wifiService.connection();
-            if (!result.available) setError(result.reason);
-          }}
-        >
-          Detail ketersediaan
-        </button>
-      </Card>
+      <NativeWifiPanel
+        mode="connection"
+        point={point}
+        radio={radio}
+        capture={editable ? captureRadio : undefined}
+        busy={busy || radioBusy}
+        setBusy={setRadioBusy}
+      />
       <div
         className="detail-tabs"
         role="tablist"
@@ -143,44 +141,34 @@ export function SamplingDetail({
       {error && <Message error>{error}</Message>}
       <div id="sampling-panel" role="tabpanel" aria-labelledby={"tab-" + tab}>
         {tab === "analyzer" ? (
-          <Card title="Wi-Fi Analyzer">
-            <div className="segmented" aria-label="Band Wi-Fi">
-              {(["2.4 GHz", "5 GHz"] as const).map((value) => (
-                <button
-                  key={value}
-                  aria-pressed={band === value}
-                  onClick={() => setBand(value)}
-                >
-                  {value}
-                </button>
-              ))}
-            </div>
-            <Empty title="Belum ada hasil scan">
-              <span>
-                Grafik sinyal, jumlah jaringan, channel overlap dan waktu scan:
-                Belum tersedia.
-              </span>
-            </Empty>
-            <button disabled className="secondary wide">
-              Pindai Wi-Fi · Belum tersedia
-            </button>
-            {saved?.status === "measured" && (
-              <div className="historical">
-                <h3>Input manual tersimpan · {band}</h3>
-                <p>
-                  {saved.signal_dbm ?? "Belum tersedia"} dBm · Channel{" "}
-                  {saved.channel ?? "Belum tersedia"}
-                </p>
-                <p>
-                  {saved.ssid || "SSID belum dicatat"} ·{" "}
-                  {saved.bssid || "BSSID belum dicatat"}
-                </p>
-                <p className="muted">
-                  Data laporan server, bukan koneksi aktif atau scan native.
-                </p>
-              </div>
-            )}
-          </Card>
+          <div className="stack">
+            <NativeWifiPanel
+              mode="scan"
+              point={point}
+              radio={radio}
+              capture={editable ? captureRadio : undefined}
+              busy={busy || radioBusy}
+              setBusy={setRadioBusy}
+            />
+            <Card title="Pengukuran legacy">
+              {saved?.status === "measured" && (
+                <div className="historical">
+                  <h3>Input manual tersimpan · {band}</h3>
+                  <p>
+                    {saved.signal_dbm ?? "Belum tersedia"} dBm · Channel{" "}
+                    {saved.channel ?? "Belum tersedia"}
+                  </p>
+                  <p>
+                    {saved.ssid || "SSID belum dicatat"} ·{" "}
+                    {saved.bssid || "BSSID belum dicatat"}
+                  </p>
+                  <p className="muted">
+                    Data laporan server, bukan koneksi aktif atau scan native.
+                  </p>
+                </div>
+              )}
+            </Card>
+          </div>
         ) : tab === "speed" ? (
           <div className="stack">
             <Card title="LibreSpeed" action={<Zap size={18} />}>
@@ -259,14 +247,25 @@ export function SamplingDetail({
         ) : (
           <div className="stack sampling-notes" aria-label="Foto & Catatan">
             <Card title="Kondisi & Temuan">
+              {savedObservation && (
+                <details>
+                  <summary>Catatan terakhir di server</summary>
+                  <p>{when(savedObservation.received_at)}</p>
+                  <p>{savedObservation.notes.notes}</p>
+                  <p>{savedObservation.notes.findings}</p>
+                  <p>{savedObservation.notes.action}</p>
+                  <p>{savedObservation.notes.recommendation}</p>
+                </details>
+              )}
               <fieldset
                 className="form-body"
-                disabled={!editable || taking || busy}
+                disabled={!editable || taking || busy || radioBusy}
               >
                 <Field label="Lokasi sampling">
                   <input
                     value={notes.location ?? point.name}
                     maxLength={200}
+                    disabled={!!point.session}
                     onChange={(e) =>
                       change({
                         ...notes,
@@ -276,7 +275,13 @@ export function SamplingDetail({
                     }
                   />
                 </Field>
-                <Field label="Status titik lokal">
+                <Field
+                  label={
+                    point.session
+                      ? "Kondisi titik (bukan status selesai)"
+                      : "Status titik lokal"
+                  }
+                >
                   <select
                     value={notes.status || "untested"}
                     onChange={(e) =>
@@ -325,7 +330,7 @@ export function SamplingDetail({
             <Card title="Tindakan & Rekomendasi">
               <fieldset
                 className="form-body"
-                disabled={!editable || taking || busy}
+                disabled={!editable || taking || busy || radioBusy}
               >
                 {(
                   [
@@ -350,10 +355,51 @@ export function SamplingDetail({
                 ))}
               </fieldset>
             </Card>
+            {point.session && (
+              <Card title="Simpan catatan titik">
+                <p>
+                  Catatan tersimpan terpisah untuk lokasi ini. Foto dan
+                  speedtest belum ikut dikirim. Kondisi Baik belum berarti
+                  pemeriksaan selesai.
+                </p>
+                {savedObservation && (
+                  <p>
+                    Catatan diterima server:{" "}
+                    {when(savedObservation.received_at)}
+                  </p>
+                )}
+                {saveNotes ? (
+                  <button
+                    className="primary wide"
+                    disabled={!editable || busy || radioBusy}
+                    onClick={saveNotes}
+                  >
+                    Simpan catatan ke server
+                  </button>
+                ) : (
+                  <p>Penyimpanan catatan server belum diaktifkan.</p>
+                )}
+                {rebaseNotes && (
+                  <>
+                    <p>
+                      Tinjau catatan server dan draf, lalu muat ulang kunjungan
+                      sebelum membuat kiriman pengganti.
+                    </p>
+                    <button
+                      className="secondary wide"
+                      disabled={!editable || busy || radioBusy}
+                      onClick={rebaseNotes}
+                    >
+                      Kirim draf setelah review
+                    </button>
+                  </>
+                )}
+              </Card>
+            )}
             <Card title="Dokumentasi Foto">
               <fieldset
                 className="form-body"
-                disabled={!editable || taking || busy}
+                disabled={!editable || taking || busy || radioBusy}
               >
                 <Field label="Kategori foto">
                   <select

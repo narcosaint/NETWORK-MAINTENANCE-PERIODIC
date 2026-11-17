@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import select, delete, update
+from sqlalchemy import select, delete, update, inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app import models as m, schemas as s
@@ -144,6 +144,12 @@ def register(path, model, create_schema, update_schema, output_schema):
     def update(identifier: UUID, data: update_schema, user=Depends(supervisor), session: Session = Depends(db)):
         obj = get(session, model, identifier)
         values = data.model_dump()
+        if model is m.Device:
+            if inspect(session.connection()).has_table('sampling_points'):
+                obj = session.scalar(select(m.Device).where(m.Device.id == identifier).with_for_update())
+                if (values['hotel_id'] != obj.hotel_id or values['device_type'] != obj.device_type) and session.scalar(
+                        select(m.SamplingPoint.id).where(m.SamplingPoint.device_id == identifier).limit(1)):
+                    raise HTTPException(409, 'AP dirujuk titik sampling; hotel dan jenis tidak dapat diubah')
         if model is m.Schedule:
             # Lock the schedule to serialize assignment changes with visit creation.
             obj = session.scalar(select(m.Schedule).where(m.Schedule.id == identifier).with_for_update())
