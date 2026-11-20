@@ -16,7 +16,7 @@ def run(base_url, password, artifacts):
             page.goto(base_url)
             page.locator('[name=username]').fill(username)
             page.locator('[name=password]').fill(password)
-            page.get_by_role('button',name='Masuk ke workspace').click()
+            page.get_by_role('button',name='Masuk',exact=False).click()
             expect(page.locator('#workspace')).to_be_visible()
         def nav(name):
             page.locator('#navigation').get_by_role('button',name=name,exact=True).click()

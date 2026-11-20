@@ -1,5 +1,47 @@
+RILIS REVIEW DAN HASIL MAINTENANCE — 19 NOVEMBER 2026:
+APK 1.7.0/backend/Web aktif: pemulihan antrean catatan lama, perbandingan konflik,
+pesan tombol PIC/check-out/PDF terlihat, menu hasil supervisor dan grafik interaktif.
+Schema tetap 0014; data lama utuh. Rincian: docs/REVIEW-RECOVERY-1.7.md.
+
+RILIS UI DAN PROFIL — 19 NOVEMBER 2026:
+APK 1.6.1 dan backend/Web telah diaktifkan atas persetujuan operator.
+Revisi form/foto/PIC/check-out/PDF ditambah kontak profil teknisi tersimpan di server.
+Migration 0014 direview dan diuji sebelum diterapkan; data lama/cakupan tetap utuh.
+Rincian: docs/PROFILE-RELEASE-1.6.1.md dan docs/reviews/USER-PROFILE-0014.md.
+
+PENYESUAIAN OPERATOR — AREA LAPANGAN BEBAS:
+Jumlah lantai dan area mengikuti pemeriksaan teknisi, tanpa minimum per lantai.
+Pengujian satu halaman; foto area opsional dan foto terkirim tetap dimuat di PDF.
+Menu perangkat dan kartu cakupan sampling dihilangkan dari UI; histori tetap utuh.
+
+IMPLEMENTASI ALUR LAPORAN — 19 NOVEMBER 2026:
+Dokumentasi area, review PIC, submit dan PDF diintegrasikan dalam rilis 1.4.0.
+Lihat docs/COMPLETION-RELEASE.md untuk rancangan, alur dan batas verifikasi.
+
+PENYESUAIAN OPERATOR — PENGUKURAN DARI HP:
+Wi-Fi Analyzer dan speedtest area menggunakan koneksi Wi-Fi aktual HP.
+Inventaris AP, pemetaan perangkat, dan pencocokan MAC bukan syarat pengukuran.
+Riwayat/API inventaris lama tetap dipertahankan untuk kompatibilitas.
+
+PENYESUAIAN OPERATOR — DOKUMEN REVISI 19 NOVEMBER 2026:
+Nama aplikasi NUSA MAINTENANCE; UI menggunakan istilah area; target awal baru
+2 area, menggantikan default 4 untuk pembuatan baru. Target/data lama tetap utuh.
+Revisi dokumen pengguna mengambil prioritas atas angka 4 pada riwayat roadmap.
+Lihat docs/REVISI-TAMPILAN-2026-11-19.md.
+
 # PROJECT: HOTEL NETWORK MAINTENANCE V2
 # MASTER ROADMAP & DEVELOPMENT INSTRUCTIONS
+
+PENYESUAIAN DISETUJUI OPERATOR — 18 NOVEMBER 2026:
+Teknisi yang ditugaskan boleh menambah lantai/area dan titik sampling aktual
+langsung dari Android saat kunjungan dapat diedit setelah check-in. Perubahan
+lapangan harus memiliki alasan, actor, UUID retry, dan audit pada kunjungan.
+Cakupan boleh bertambah tanpa menghapus/mengubah bukti yang sudah ada. Default
+4 titik tetap target; jangan membuat lokasi/pengukuran dummy. Histori kunjungan
+lain tetap utuh. Ini menggantikan pembatasan penambahan lokasi hanya supervisor;
+pengelolaan master administratif existing tetap tersedia untuk supervisor.
+Lihat docs/FIELD-SAMPLING.md. Deployment/migration tetap memerlukan persetujuan.
+
 
 KONTEKS:
 Kita sedang mengembangkan aplikasi Hotel Network Maintenance

@@ -11,6 +11,7 @@ export function SyncStatus({ scope }: { scope: string }) {
         await flushAccount(scope);
         const rows = await store.prefix<unknown>(scope);
         const total = rows.reduce((n, row) => {
+          if (row.key.endsWith(":contact-profile:draft")) return n + 1;
           if (row.key.endsWith(":report")) return n + 1;
           if (row.key.endsWith(":photos") && Array.isArray(row.value))
             return n + row.value.length;

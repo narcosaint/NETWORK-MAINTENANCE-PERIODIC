@@ -20,6 +20,28 @@ export function editable(v: Visit, userId: string) {
   );
 }
 export function pointEvidence(p: Point) {
+  if (p.session) {
+    const attempt = p.session.speedtests?.at(-1),
+      run = attempt?.run || undefined;
+    const failed =
+      !!attempt &&
+      ["failed", "aborted"].includes(attempt.status) &&
+      !!attempt.error?.trim();
+    const observation = p.session.observation;
+    const problem =
+      failed ||
+      ["attention", "problem"].includes(observation?.notes.condition || "");
+    return {
+      done: p.session.completion?.done === true,
+      problem,
+      run,
+      label: problem
+        ? "Perlu Perhatian"
+        : p.session.completion?.done
+          ? "Pemeriksaan tersimpan"
+          : "Belum Diperiksa",
+    };
+  }
   const item = p.item,
     runs = (item?.speedtests || [])
       .slice()
@@ -38,9 +60,7 @@ export function pointEvidence(p: Point) {
       Number.isFinite(run.metrics?.[k as keyof typeof run.metrics]),
     );
   const failed = run?.status === "failed" && !!run.error?.trim();
-  const condition = p.session?.observation?.notes.condition;
-  const problem =
-    item?.result?.outcome === "fail" || failed || condition === "problem";
+  const problem = item?.result?.outcome === "fail" || failed;
   const done =
     !!item &&
     ["pass", "fail"].includes(item.result?.outcome || "") &&
@@ -54,7 +74,7 @@ export function pointEvidence(p: Point) {
       ? "Bermasalah"
       : done
         ? "Baik"
-        : item?.result?.outcome || condition === "attention"
+        : item?.result?.outcome
           ? "Perlu Perhatian"
           : "Belum Diperiksa",
   };
@@ -67,6 +87,7 @@ export function samplingFloors(
     return coverage.floors.map((floor) => ({
       id: floor.id,
       name: floor.name,
+      target: floor.target_count,
       points: floor.points.map((session) => ({
         id: session.id,
         name: session.name,
@@ -88,19 +109,18 @@ export function samplingFloors(
     });
   }
   for (const floor of floors)
-    while (floor.points.length < 4)
+    while (floor.points.length < 2)
       floor.points.push({
         id: `target:${floor.id}:${floor.points.length}`,
-        name: `Titik ${floor.points.length + 1} · belum ditentukan`,
+        name: `Area ${floor.points.length + 1} · belum ditentukan`,
       });
   return floors;
 }
 export function progress(v: Visit) {
-  const points = samplingFloors(v.devices, v.sampling_coverage).flatMap(
-    (f) => f.points,
-  );
+  const floors = samplingFloors(v.devices, v.sampling_coverage);
+  const points = floors.flatMap((f) => f.points);
   return {
-    total: points.length,
+    total: floors.reduce((count, floor) => count + floor.points.length, 0),
     done: points.filter((p) => pointEvidence(p).done).length,
   };
 }

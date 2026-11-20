@@ -14,7 +14,7 @@ class SamplingNotes(StrictInput):
 
     @model_validator(mode='after')
     def explain_problem(self):
-        if self.condition in ('attention', 'problem') and not self.findings:
+        if self.condition in ('attention', 'problem') and not (self.findings.strip() or self.notes.strip()):
             raise ValueError('Isi temuan untuk kondisi perlu perhatian/bermasalah')
         return self
 

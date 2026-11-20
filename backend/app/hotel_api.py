@@ -60,7 +60,7 @@ def device_info(session, item):
             'floor': item.floor, 'point': item.point, 'result': item.result,
             'photos': [photo_info(photo) for photo in photos],
             'speedtests': [speedtest_info(run) for run in session.scalars(select(m.NetworkSpeedtest).where(
-                m.NetworkSpeedtest.visit_device_id == item.id).order_by(m.NetworkSpeedtest.created_at, m.NetworkSpeedtest.id))]}
+                m.NetworkSpeedtest.visit_device_id == item.id).order_by(m.NetworkSpeedtest.created_at, m.NetworkSpeedtest.id)) if not run.context.get('sampling_session_id')]}
 
 
 def visit_info(visit):
@@ -79,6 +79,8 @@ def detail(session, visit):
         if coverage:
             from app.sampling_coverage_api import coverage_info
             result['sampling_coverage'] = coverage_info(session, coverage)
+    from app.maintenance_completion import photos, public_photo
+    result['evidence'] = [public_photo(photo) for photo in photos(session, visit.id)]
     return result
 
 
@@ -106,8 +108,6 @@ def create_visit(data: hs.HotelVisitCreate, user=Depends(supervisor), session: S
         raise HTTPException(422, 'Pilih teknisi aktif')
     devices = session.scalars(select(m.Device).where(m.Device.hotel_id == data.hotel_id,
                                                       m.Device.device_type.in_(['router', 'switch']))).all()
-    if not devices:
-        raise HTTPException(422, 'Daftarkan router atau switch hotel sebelum membuat kunjungan')
     visit = m.HotelVisit(**data.model_dump(), report={'form_version': 2, 'customer_company': site.customer_name or site.name, 'site_profile': site.maintenance_profile or {}})
     session.add(visit)
     session.flush()
@@ -273,7 +273,9 @@ def complete(session, visit):
     # prevent the legacy validator from accepting an incomplete V2 visit.
     if inspect(session.connection()).has_table('sampling_coverages') and session.scalar(select(m.SamplingCoverage.id).where(
             m.SamplingCoverage.hotel_visit_id == visit.id)):
-        raise HTTPException(409, 'Cakupan V2 tersimpan. Submit menunggu integrasi pengukuran per titik dan review PIC.')
+        from app.maintenance_completion import require_complete
+        require_complete(session, visit)
+        return
     report = hs.HotelReport.model_validate(visit.report)
     if not report.summary or not report.summary.strip() or not report.work_status or not report.backbone_mode:
         raise HTTPException(409, 'Isi ringkasan, hasil pekerjaan dan jenis koneksi backbone')

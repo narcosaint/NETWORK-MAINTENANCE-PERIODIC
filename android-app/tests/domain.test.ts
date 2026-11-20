@@ -4,6 +4,7 @@ import {
   pointEvidence,
   reportForSave,
   samplingFloors,
+  progress,
 } from "../src/domain";
 import { normalizeOrigin, ApiClient, ApiError } from "../src/services/api";
 import { libreSpeedService } from "../src/services/librespeed";
@@ -62,6 +63,16 @@ describe("server coverage", () => {
       ),
     ).toBe(true);
   });
+  it("counts actual field areas without imposing a historical target", () => {
+    const field = structuredClone(coverage);
+    field.floors[0].target_count = 4;
+    field.floors[0].points = field.floors[0].points.slice(0, 1);
+    expect(progress({ sampling_coverage: field } as Visit)).toEqual({
+      total: 1,
+      done: 0,
+    });
+    expect(samplingFloors([], field)[0].points).toHaveLength(1);
+  });
   it("accepts nullable coverage responses without weakening ordinary API validation", async () => {
     const fetcher = vi
       .fn()
@@ -79,9 +90,9 @@ describe("server coverage", () => {
   });
 });
 describe("physical sampling evidence", () => {
-  it("pads to 4 without inventing server items or mutating the source", () => {
+  it("pads to 2 without inventing server items or mutating the source", () => {
     const floors = samplingFloors([item]);
-    expect(floors[0].points).toHaveLength(4);
+    expect(floors[0].points).toHaveLength(2);
     expect(floors[0].points.filter((p) => p.item)).toHaveLength(1);
     expect(item.point).toBe("Koridor");
     expect(samplingFloors([])).toEqual([]);
@@ -206,9 +217,6 @@ describe("native interfaces", () => {
     expect(await wifiService.connection()).toMatchObject({ available: false });
     expect(await wifiService.scan("5 GHz")).toMatchObject({ available: false });
     expect(libreSpeedService.capability()).toMatchObject({ available: false });
-    await expect(libreSpeedService.start("point")).rejects.toThrow(
-      "Belum tersedia",
-    );
   });
 });
 describe("API safety and contract", () => {
@@ -217,6 +225,12 @@ describe("API safety and contract", () => {
       "https://hotel.example",
     );
     for (const origin of [
+      "http://maintenance.inisaja.id",
+      "http://maintenance.inisaja.id:8000",
+      "http://maintenance.inisaja.id.evil.example",
+      "http://maintenance.inisaja.id/path",
+      "http://user:pass@maintenance.inisaja.id",
+      "http://sub.maintenance.inisaja.id",
       "http://hotel.example",
       "https://user:pass@hotel.example",
       "https://hotel.example/path",

@@ -15,10 +15,7 @@ export function observationMatchesDraft(
   fallback: SamplingNotes | undefined,
   observation: SamplingObservation,
 ) {
-  if (
-    JSON.stringify(observationNotes(draft, fallback)) !==
-    JSON.stringify(observation.notes)
-  )
+  if (!sameNotes(observationNotes(draft, fallback), observation.notes))
     return false;
   if (!draft?.radio) return true;
   const normalize = (value: unknown): unknown => {
@@ -45,6 +42,113 @@ export function observationMatchesDraft(
       }),
     )
   );
+}
+
+export function sameNotes(a: SamplingNotes, b: SamplingNotes) {
+  return (Object.keys(a) as (keyof SamplingNotes)[]).every(
+    (key) => a[key] === b[key],
+  );
+}
+
+function newerRadio(
+  draft: PointDraft | undefined,
+  observation?: SamplingObservation | null,
+) {
+  if (!draft?.radio) return false;
+  const payload = radioPayload(draft.radio);
+  return (["wifi_connection", "wifi_scan"] as const).some((key) => {
+    const incoming = payload[key],
+      saved = observation?.[key];
+    return (
+      !!incoming &&
+      (!saved ||
+        new Date(incoming.observed_at).getTime() >
+          new Date(saved.observed_at).getTime())
+    );
+  });
+}
+
+export async function submitLatestObservation(
+  api: ApiClient,
+  scope: string,
+  visit: Visit,
+  point: Point,
+  draft: PointDraft | undefined,
+  online: boolean,
+  rebase = false,
+) {
+  let result: Awaited<ReturnType<typeof submitObservation>>;
+  try {
+    result = await submitObservation(
+      api,
+      scope,
+      visit,
+      point,
+      draft,
+      online,
+      rebase,
+    );
+  } catch (error) {
+    const detail =
+      error instanceof ApiError
+        ? (error.detail as { code?: string } | undefined)
+        : undefined;
+    const pending = await store.get<PendingObservation>(
+      observationKey(scope, point.id),
+    );
+    if (
+      detail?.code !== "sampling_notes_conflict" ||
+      !pending?.conflict ||
+      sameNotes(
+        observationNotes(draft, point.session?.observation?.notes),
+        pending.payload.notes,
+      )
+    )
+      throw error;
+    // A definite rejection can be replaced by the newer draft; ambiguous sends keep their UUID.
+    await store.put(
+      scope + "rejected-observation:" + pending.payload.id,
+      pending,
+    );
+    await store.remove(observationKey(scope, point.id));
+    result = await submitObservation(api, scope, visit, point, draft, online);
+  }
+  const refreshed = result.visit.sampling_coverage?.floors
+    .flatMap((f) => f.points)
+    .find((p) => p.id === point.id);
+  const desired = observationNotes(draft, point.session?.observation?.notes);
+  if (
+    !sameNotes(desired, result.submittedNotes) ||
+    newerRadio(draft, refreshed?.observation)
+  ) {
+    const current = refreshed
+      ? { id: refreshed.id, name: refreshed.name, session: refreshed }
+      : point;
+    const next = { ...result.observation.notes };
+    for (const field of Object.keys(desired) as (keyof SamplingNotes)[]) {
+      if (desired[field] !== result.submittedNotes[field]) {
+        if (field === "condition") next.condition = desired.condition;
+        else next[field] = desired[field];
+      }
+    }
+    result = await submitObservation(
+      api,
+      scope,
+      result.visit,
+      current,
+      {
+        ...draft,
+        ...next,
+        status: next.condition,
+        updatedAt: draft?.updatedAt || new Date().toISOString(),
+        baseNotes: result.observation.notes,
+        baseSessionVersion: result.observation.session_version,
+        baseVisitVersion: result.visit.version,
+      },
+      online,
+    );
+  }
+  return result;
 }
 
 export type PendingObservation = {
@@ -103,7 +207,27 @@ export async function submitObservation(
   }
   if (!pending) {
     const notes = observationNotes(draft, point.session.observation?.notes);
-    if (["attention", "problem"].includes(notes.condition) && !notes.findings)
+    const measured = draft?.radio ? radioPayload(draft.radio) : undefined;
+    const radio: Pick<ObservationSubmission, "wifi_connection" | "wifi_scan"> =
+      {};
+    if (measured)
+      for (const key of ["wifi_connection", "wifi_scan"] as const) {
+        const value = measured[key],
+          saved = point.session.observation?.[key];
+        if (
+          value &&
+          (!saved ||
+            new Date(value.observed_at).getTime() >
+              new Date(saved.observed_at).getTime())
+        ) {
+          Object.assign(radio, { [key]: value });
+        }
+      }
+    if (
+      ["attention", "problem"].includes(notes.condition) &&
+      !notes.findings &&
+      !notes.notes
+    )
       throw new Error("Isi temuan untuk kondisi perlu perhatian/bermasalah.");
     pending = {
       conflict: false,
@@ -112,12 +236,16 @@ export async function submitObservation(
         expected_visit_version: rebase
           ? visit.version
           : (draft?.baseVisitVersion ?? visit.version),
-        expected_session_version: rebase
-          ? point.session.version
-          : (draft?.baseSessionVersion ?? point.session.version),
+        expected_session_version:
+          rebase ||
+          (draft?.baseNotes &&
+            JSON.stringify(draft.baseNotes) ===
+              JSON.stringify(point.session.observation?.notes))
+            ? point.session.version
+            : (draft?.baseSessionVersion ?? point.session.version),
         captured_at: draft?.updatedAt || new Date().toISOString(),
         notes,
-        ...(draft?.radio ? radioPayload(draft.radio) : {}),
+        ...radio,
       },
     };
     await store.put(key, pending);
@@ -133,7 +261,7 @@ export async function submitObservation(
       pending.payload,
     );
     await store.remove(key);
-    return result;
+    return { ...result, submittedNotes: pending.payload.notes };
   } catch (error) {
     if (error instanceof ApiError && error.status === 409)
       await store.put(key, { ...pending, conflict: true });

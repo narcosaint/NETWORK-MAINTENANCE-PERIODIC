@@ -1,0 +1,17 @@
+{
+  "source": "artifacts/design/ikon aplikasi.jfif",
+  "sha256": "8f36c45337388fcd60bfce515c09cd248823fcab75953be7922ad4b2aa0afc1e",
+  "logo_crop": [
+    180,
+    515,
+    1799,
+    1022
+  ],
+  "icon_crop": [
+    1957,
+    460,
+    2572,
+    1076
+  ],
+  "processing": "Crop supplied artwork and resize for application resources; original artwork retained."
+}

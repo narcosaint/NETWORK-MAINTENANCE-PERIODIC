@@ -1,3 +1,41 @@
+> Rilis aktif **1.7.0**: `artifacts/android/nusa-maintenance-1.7.0-debug.apk`.
+> Pemulihan konflik draf Review/PIC/check-out dan menu Hasil Maintenance supervisor
+> dengan ringkasan/grafik interaktif. [Rincian dan verifikasi](docs/REVIEW-RECOVERY-1.7.md).
+
+> Rilis aktif 1.6.1: `artifacts/android/nusa-maintenance-1.6.1-debug.apk`.
+> Revisi form, multi foto, PIC/check-out, branding PDF dan profil kontak teknisi.
+> Backend/Web aktif, data lama dipertahankan. [Rincian rilis](docs/PROFILE-RELEASE-1.6.1.md).
+
+> Rilis terbaru: APK `artifacts/android/nusa-maintenance-1.5.0-debug.apk`.
+> Speedtest berhenti sesuai budget data; area bebas, satu halaman pengujian,
+> logout dikonfirmasi, laporan dilipat, foto area opsional dalam PDF.
+> Lihat `docs/FIELD-SIMPLE-1.5.md`.
+
+> Branding terbaru: APK `artifacts/android/nusa-maintenance-1.4.1-debug.apk`.
+> Logo utama, ikon launcher/header dan splash memakai artwork operator.
+> Lihat `docs/BRANDING-ANDROID.md`.
+
+> Rilis terbaru: APK `artifacts/android/nusa-maintenance-1.4.0-debug.apk`.
+> Alur foto area → review PIC → submit → PDF terintegrasi.
+> Panduan dan verifikasi: `docs/COMPLETION-RELEASE.md`.
+
+> Revisi koneksi HP: APK `artifacts/android/nusa-maintenance-1.3.0-debug.apk`.
+> Wi-Fi Analyzer/speedtest area tidak memerlukan inventaris AP atau kecocokan MAC.
+> Hasil mengikuti koneksi Wi-Fi aktual HP; lihat `docs/reviews/PHONE-NETWORK-0013.md`.
+
+> Revisi terbaru 19 November 2026: NUSA MAINTENANCE 1.2.0, Network Test,
+> default baru 2 area, form lebih ringkas dan link test radio numerik.
+> APK: `artifacts/android/nusa-maintenance-1.2.0-debug.apk`.
+> [Rincian revisi dan pengujian](docs/REVISI-TAMPILAN-2026-11-19.md).
+
+> Status 18 November 2026: backend/Web sampling teknisi sudah aktif di
+> https://maintenance.inisaja.id, schema 0012. Teknisi dapat menambah lantai/titik
+> setelah check-in, menyimpan observasi Wi-Fi dan menjalankan speedtest per titik.
+> APK terbaru 1.1.0: `artifacts/android/hotel-maintenance-https-debug.apk`.
+> Uji radio/throughput HP dan kelengkapan foto/PIC masih diperlukan. Detail:
+> [deployment](docs/DEPLOYMENT.md), [alur lapangan](docs/FIELD-SAMPLING.md).
+> Catatan draft/belum aktif di bagian historis bawah mendahului rilis ini.
+
 # Hotel Maintenance
 
 Backend FastAPI/PostgreSQL dengan dashboard supervisor dan teknisi. Kunjungan
@@ -165,7 +203,7 @@ Belum ada APK release atau deployment Android.
 
 Master lantai/titik dan snapshot cakupan kunjungan sudah mempunyai model/API serta
 integrasi Web/Android. Snapshot mempertahankan lokasi historis dan sesi berbeda
-untuk tiap titik. Pengukuran per sesi dan submit V2 belum tersedia; alur kunjungan
+untuk tiap titik. Fondasi pengukuran per sesi tersedia; submit V2 belum tersedia. Alur kunjungan
 legacy serta Backbone FO/wireless dan LAN tetap dipertahankan.
 Fitur default nonaktif dan migration 0010 masih draft di luar head Alembic.
 Belum diterapkan ke database/deployment. Lihat
@@ -173,7 +211,7 @@ Belum diterapkan ke database/deployment. Lihat
 
 Catatan/temuan/tindakan per sesi sekarang dapat dikirim Web/Android dengan
 antrean lokal dan retry UUID yang sama. Kontrak penyimpanan observasi Wi-Fi
-tersedia; pengumpulan native dan verifikasi radio belum diimplementasikan.
+tersedia; pengumpulan native tersedia di Phase 4, verifikasi radio fisik belum selesai.
 Draft 0011 dan gate write masih nonaktif; lihat
 [batas dan verifikasi observasi](docs/SAMPLING-OBSERVATIONS.md).
 
@@ -181,3 +219,16 @@ Source [Phase 4 Wi-Fi native](docs/PHASE-4-NATIVE-WIFI.md) menambah plugin Andro
 scanner 2.4/5 GHz, grafik serta draf capture per sesi. Kompilasi Java dan frontend
 lulus; pengujian radio HP fisik masih wajib. Fondasi juga diuji pada PostgreSQL
 18.6 sementara melalui Unix socket privat, tanpa Docker atau database produksi.
+
+Source [Phase 5A](docs/PHASE-5-SESSION-SPEEDTESTS.md) mengaitkan run LibreSpeed ke
+sesi titik yang berbeda dan menambah pencatatan gagal uji beralasan di Android.
+Source [Phase 5B](docs/PHASE-5-ANDROID-TRANSFER.md) menambah start/transfer Android,
+binding Wi-Fi sementara, pembatalan dan antrean retry hasil tanpa menyimpan tiket.
+Build APK debug terbaru: `artifacts/android/hotel-maintenance-phase5-debug.apk`.
+Draft 0010–0012 dan gate server belum diterapkan. API HTTPS staging serta uji HP
+masih diperlukan; belum ada deployment atau klaim siap operasional.
+
+Penyesuaian [lokasi lapangan dari teknisi](docs/FIELD-SAMPLING.md) menambah form
+lantai/area dan titik langsung di Android, draf offline dan retry UUID. Histori
+kunjungan sebelumnya dipertahankan. Source ini masih menunggu aktivasi backend,
+review migration 0010–0012 dan gate SAMPLING_FIELD_ENABLED.

@@ -40,6 +40,9 @@ def database_health(request: Request):
 from app.api import router
 app.include_router(router)
 
+from app.user_profile_api import router as profile_router
+app.include_router(profile_router)
+
 
 # Same-origin UI: API tokens stay in browser memory, no CORS or public proxy.
 web_directory = Path(__file__).resolve().parent / 'web'
@@ -78,3 +81,15 @@ app.include_router(coverage_router)
 
 from app.sampling_observation_api import router as observation_router
 app.include_router(observation_router)
+
+from app.sampling_speedtest_api import router as sampling_speedtest_router
+app.include_router(sampling_speedtest_router)
+
+from app.native_transfer_cors import native_transfer_cors
+app.middleware('http')(native_transfer_cors)
+
+from app.sampling_field_api import router as sampling_field_router
+app.include_router(sampling_field_router)
+
+from app.maintenance_completion import router as completion_router
+app.include_router(completion_router)

@@ -1,3 +1,91 @@
+# Revisi NUSA MAINTENANCE 1.2.0 — 19 November 2026
+
+Rilis backend hotel-maintenance-api:ui-revisi-20261119T034713Z aktif setelah backup konsisten dan uji restore.
+Schema tetap 0012, semua row lama terjaga identik, tidak ada migration atau seed baru.
+Default area baru 2, link test radio numerik JSON dan auto-identifikasi AP melalui
+BSSID sudah aktif. Android 1.2.0 memakai revisi dokumen pengguna. Detail lengkap:
+[REVISI-TAMPILAN-2026-11-19.md](REVISI-TAMPILAN-2026-11-19.md).
+
+# Sampling teknisi aktif — 18 November 2026
+
+Operator menyetujui backup, uji restore, deployment dan migration 0010–0012.
+Rilis aktif: `hotel-maintenance-api:sampling-field-20261118T101650Z`, container `hotel-maintenance-web-sampling`.
+Schema produksi sekarang **0012_sampling_speedtest_attempts**. Keempat gate master,
+field locations, observasi dan session speedtests aktif. PUBLIC_SPEEDTEST_ORIGIN
+adalah https://maintenance.inisaja.id. Backend tetap bind 10.100.23.103:8000,
+proxy TLS tetap 10.100.23.103:443; database/foto memakai volume semula.
+
+Backup konsisten database.dump + photos.tar.gz dibuat dengan API berhenti sementara:
+`/root/backups/hotel-maintenance/sampling-field-20261118T101650Z`. File backup/record deployment mode 0600, direktori 0700.
+Restore ke PostgreSQL 17.6 `--network none` berhasil, lalu upgrade 0009→0012 dan
+fingerprint semua tabel lama identik. Baru setelah itu upgrade produksi dilakukan;
+fingerprint seluruh data lama tetap sama dan tujuh tabel baru kosong saat migrasi
+selesai. Tidak ada seed atau data pengukuran QA dimasukkan ke produksi.
+
+Image yang sama diuji pada salinan restore: QA login teknisi, check-in, penambahan
+lokasi/replay UUID, observasi native client-reported, tiket/CORS transfer, transfer
+byte download/upload serta finish per sesi. Akun/lokasi/radio/metrik QA hanya ada
+di database salinan terisolasi yang dibersihkan. Uji tersebut bukan bukti radio
+atau throughput HP fisik.
+
+Verifikasi rilis: 82 test backend lulus pada Python 3.12 image produksi (25 opt-in
+skipped), 24 test PostgreSQL terisolasi lulus melalui chain aktif sampai 0012.
+Pengulangan suite pada Python 3.14 development sempat crash; suite produksi 3.12
+lulus. Test dependencies dipasang hanya ke layer container QA sementara, tidak
+mengubah dependency image rilis. Health/API kontrak HTTPS privat dan publik lulus,
+route lapangan/observasi/speedtest tersedia. Proxy HTTPS dipercaya hanya dari
+alamat host/gateway yang ditentukan. Tidak memakai forwarded-allow-ips='*'.
+
+Semua asset Web source disalin ke image baru; image lama tetap tersedia untuk
+recovery. Tidak ada downgrade schema atau pemulihan dump di atas data baru.
+Jika perlu mematikan write baru, gunakan gate di backend baru agar guard bukti
+sampling tetap berlaku. Jangan kembali ke backend lama setelah bukti V2 tercatat.
+
+APK teknisi terbaru: versi 1.1.0 (versionCode 2),
+artifacts/android/hotel-maintenance-https-debug.apk. Login tanpa kolom origin.
+Setelah check-in: Sampling → Tambah lantai / titik sampling → masukkan lokasi
+aktual dan AP inventaris jika dikenali. Hasil AP lama tidak disalin ke sesi baru.
+AP tidak dikenal belum dapat start speedtest; dapat dicatat gagal uji beralasan.
+Dokumentasi per sesi/PIC dan completion V2 masih tahap berikutnya; jangan mengklaim
+seluruh maintenance selesai hanya dari pengukuran.
+
+Catatan sebelumnya di bawah adalah riwayat sebelum aktivasi.
+
+# HTTPS Let’s Encrypt — 18 November 2026
+
+Caddy systemd service hotel-maintenance-https.service sudah aktif/enabled pada
+10.100.23.103:443, reverse proxy ke API privat 10.100.23.103:8000. Sertifikat
+maintenance.inisaja.id diterbitkan Let’s Encrypt YE2; berakhir 16 Februari 2027.
+Bootstrap menggunakan jalur HTTP yang sudah diteruskan NOC; API dihentikan
+sementara lalu dipulihkan dan health/database diverifikasi. Tidak ada migration.
+
+Health/kontrak login HTTPS privat lulus dengan sertifikat publik terverifikasi.
+Jalur publik 110.232.70.162:443 masih ditolak, sehingga login HP belum dinyatakan
+siap. NOC perlu forward TCP443 ke 10.100.23.103:443. Renewal otomatis TLS-ALPN-01
+bergantung jalur ini. Private key hanya di state root-private Caddy di luar repo.
+Detail operasi dan batas verifikasi: deploy/https/README.md.
+
+# Binding IP privat — 18 November 2026
+
+Atas instruksi operator, published port API di compose.sampling.yaml berubah dari
+127.0.0.1:8000 menjadi **10.100.23.103:8000**. Container tetap
+hotel-maintenance-web-sampling; image kini hotel-maintenance-api:private-bind-20261118.
+Backend code memakai image deployed sebelumnya; hanya aset web aktif disalin ke
+image turunan supaya perubahan UI dalam writable layer tidak hilang saat recreate.
+Tidak menyertakan source Phase 4/5 yang belum dideploy. Database dan volume foto,
+network Docker, environment aplikasi serta migration tidak diubah.
+
+Validasi: /health dan /health/db lewat IP privat berstatus ok; binding Docker tepat
+10.100.23.103:8000 dan checksum semua file web identik sebelum/sesudah. Healthcheck
+127.0.0.1 di dalam container tetap benar karena backend listen 0.0.0.0 di container.
+Salinan Compose sebelumnya, aset/checksum web dan Compose rollback tersedia pada
+artifacts/private-bind/. Rollback mengembalikan binding localhost dengan image yang
+mempertahankan aset aktif; gunakan project-directory repo untuk pemuatan .env.
+
+Upstream NOC: http://10.100.23.103:8000. HTTPS maintenance.inisaja.id belum aktif;
+reverse proxy/firewall/NAT publik tidak dipasang atau diubah pada langkah ini.
+Bagian di bawah merupakan riwayat, termasuk referensi binding localhost lama.
+
 # Deployment aktif — 13 November 2026
 
 Backend dan UI web terbaru terpasang hingga revision `0009_site_report_profile`. Container
@@ -233,3 +321,73 @@ dan PM bulanan dijelaskan di [NAVIGATION.md](NAVIGATION.md). Backup asset:
 Image pemulihan: `hotel-maintenance-api:before-navigation-20261113`. Tag image
 sampling existing dibangun ulang; container aktif tetap sama, asset live cocok source.
 Tidak ada migration atau perubahan API/backend. Health API/database ok.
+
+## Pengukuran koneksi HP — APK 1.3.0
+
+Backend aktif: `hotel-maintenance-api:phone-network-20261119T042217Z`; schema `0013_phone_network_runs`.
+Backup database/foto privat: `/root/backups/hotel-maintenance/phone-network-20261119T042217Z`. Restore terisolasi, upgrade,
+alur API tanpa AP inventaris, dan transfer byte sungguhan pada salinan lulus.
+Seluruh baris produksi dengan kolom semula memiliki fingerprint identik
+sebelum/sesudah migration. Tidak ada data QA di produksi. Health/API HTTPS
+domain dan IP publik lulus. APK 1.3.0/code4 sudah diverifikasi signature/aset.
+Lihat docs/reviews/PHONE-NETWORK-0013.md untuk batas rollback.
+
+## Aktivasi rilis 1.4.0
+
+Backend: `hotel-maintenance-api:completion-20261119T044137Z`. Schema tetap `0013_phone_network_runs`;
+tidak ada perubahan tabel/network pada rilis ini. Backup privat database/foto:
+`/root/backups/hotel-maintenance/completion-20261119T044137Z`. Restore, pengujian image pada salinan PostgreSQL,
+foto/replay, PIC/replay, submit dan PDF lulus. Semua fingerprint data produksi
+identik sebelum/sesudah update. Tidak ada data QA di produksi.
+
+89 test backend runtime Python 3.12 lulus; 29 opt-in dilewati dalam suite biasa.
+28 test PostgreSQL terisolasi dan 42 frontend lulus. Build, lint, signature,
+versi dan kecocokan aset APK lulus. Browser alur penuh pada API asli dan
+regresi tampilan/offline lulus. Layout PDF ditinjau dari hasil render.
+
+APK: `artifacts/android/nusa-maintenance-1.4.0-debug.apk`; versionCode 5. Sertifikat penandatangan
+sama dengan 1.3.0 sehingga mendukung upgrade. SHA-256: `d4272a67af4345549ee677fbfb3b82ee1724cedb3a6dd6edb73e71fafb4db3db`.
+Alias `hotel-maintenance-https-debug.apk` diperbarui ke berkas yang sama.
+Batas verifikasi: native radio/speedtest dan intent berbagi PDF masih memerlukan
+uji perangkat fisik; tidak diklaim dari fixture browser atau build.
+
+Aktif di https://maintenance.inisaja.id. Image: `hotel-maintenance-api:web-branding-20261119T063733Z`.
+Backup database/foto: `/root/backups/hotel-maintenance/web-branding-20261119T063733Z`. Restore dan QA pada
+salinan lulus; fingerprint seluruh data produksi tidak berubah. Schema tetap
+0013. Pengecekan HTTPS publik memastikan title/logo/login baru, PNG identik
+dengan Android, sidebar tanpa menu template, dan layout 390/1440 tanpa overflow.
+
+## Verifikasi dan aktivasi
+
+92 backend pada image Python 3.12 lulus (29 opt-in dilewati pada suite biasa),
+28 PostgreSQL terisolasi dan 42 frontend lulus. Pengujian tambahan setelah
+optimasi pembacaan event juga lulus. Browser nyata: worker lintas-origin HTTPS,
+alur PDF/PIC, logout batal/konfirmasi Web/Android, area/offline, kartu cakupan
+yang dihapus, accordion laporan dan navigasi tanpa Perangkat lulus.
+
+Backend aktif: `hotel-maintenance-api:field-simple-20261119T100010Z`. Backup konsisten database/foto:
+`/root/backups/hotel-maintenance/field-simple-20261119T100010Z`. Restore dan QA alur API/PIC/PDF pada salinan
+PostgreSQL lulus. Seluruh fingerprint data produksi identik. Tidak ada migration
+atau data QA di produksi. Schema tetap 0013. Aset publik HTTPS cocok dengan
+source rilis dan endpoint pembatalan area ada di OpenAPI.
+
+APK: `artifacts/android/nusa-maintenance-1.5.0-debug.apk`, code7, signature upgrade tetap sama.
+SHA-256: `4dd709dccc19f4e5ddef85c50e5f5ab557e3ded2d26c54a756479c2cdfd0e9a1`. Aset worker/brand/bundle telah diverifikasi di APK.
+Alias https-debug diperbarui. Radio, binding Android dan jaringan HP fisik tetap
+perlu uji lapangan; fixture browser tidak membuktikan pengukuran perangkat.
+
+## Rilis 1.6.1: UI dan profil teknisi
+
+Operator menyetujui deployment dan penambahan profil. Image aktif
+`hotel-maintenance-api:profile-ui-20261119T152738Z`, schema
+`0014_user_contact_profile`. Backup privat, uji restore/image, perbandingan data
+lama dan HTTPS lulus. APK `artifacts/android/nusa-maintenance-1.6.1-debug.apk`
+(code9) beserta alias memiliki sertifikat upgrade yang sama dengan 1.5.0.
+Rincian: docs/PROFILE-RELEASE-1.6.1.md.
+
+## Rilis Review Recovery 1.7.0
+
+Image `hotel-maintenance-api:review-recovery-20261119T161501Z`, schema tetap0014.
+Backup, restore dan image QA lulus; seluruh fingerprint produksi identik.
+APK code10/1.7.0 dan alias terverifikasi sertifikat/aset.
+Detail: docs/REVIEW-RECOVERY-1.7.md.

@@ -45,6 +45,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(300))
     role: Mapped[str] = mapped_column(String(20))
     active: Mapped[bool] = mapped_column(default=True)
+    contact_profile: Mapped[dict | None] = mapped_column(JSON)
 
 
 class LoginSession(Base):
@@ -216,9 +217,11 @@ class NetworkSpeedtest(Base):
     __table_args__ = (
         CheckConstraint("status IN ('running', 'completed', 'failed', 'aborted')", name='ck_speedtest_status'),
         CheckConstraint("band IN ('band_24', 'band_5')", name='ck_speedtest_band'),
+        CheckConstraint('(visit_device_id IS NOT NULL AND sampling_session_id IS NULL) OR (visit_device_id IS NULL AND sampling_session_id IS NOT NULL)', name='ck_speedtest_one_scope'),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    visit_device_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('hotel_visit_devices.id', ondelete='RESTRICT'), index=True)
+    sampling_session_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('sampling_sessions.id', ondelete='RESTRICT'), index=True)
+    visit_device_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('hotel_visit_devices.id', ondelete='RESTRICT'), index=True)
     actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('users.id', ondelete='RESTRICT'), index=True)
     band: Mapped[str] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(20), default='running')
@@ -349,3 +352,18 @@ class SamplingObservation(Base):
         CheckConstraint('session_version >= 2', name='ck_observation_session_version'),
         CheckConstraint('visit_version >= 1', name='ck_observation_visit_version'),
     )
+
+
+class SamplingSpeedtestAttempt(Base):
+    __tablename__ = 'sampling_speedtest_attempts'
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('sampling_sessions.id', ondelete='RESTRICT'), index=True)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('network_speedtests.id', ondelete='RESTRICT'), unique=True)
+    actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('users.id', ondelete='RESTRICT'), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+    request_payload: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), 'postgresql'))
+    __table_args__ = (CheckConstraint(
+        "(run_id IS NOT NULL AND failure_reason IS NULL) OR "
+        "(run_id IS NULL AND failure_reason IS NOT NULL AND length(trim(failure_reason)) > 0)",
+        name='ck_sampling_speedtest_evidence'),)

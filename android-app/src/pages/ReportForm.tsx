@@ -68,7 +68,7 @@ export function ReportForm({
       </Field>
     );
     return (
-      <Card title={title} key={key}>
+      <Card title={title} key={key} collapsible>
         {!enabled ? (
           <p className="muted">
             Tidak termasuk koneksi yang dipilih. Data tersimpan tetap
@@ -89,50 +89,38 @@ export function ReportForm({
                     ? "Tidak sesuai"
                     : "Belum diperiksa"}
             </Badge>
-            <div className="field-grid">
-              {number("download_mbps", "Download (Mbps)")}
-              {number("upload_mbps", "Upload (Mbps)")}
-            </div>
             {key === "wireless" && (
               <>
-                {number("signal_dbm", "Signal strength (dBm)", -150, 0)}
-                <Field label="Hasil link test radio">
-                  <textarea
-                    value={b.link_test_radio || ""}
-                    maxLength={5000}
-                    onChange={(e) =>
-                      update("link_test_radio", e.target.value || null)
-                    }
-                  />
-                </Field>
+                {number("signal_dbm", "Signal Strength (dBm)", -150, 0)}
+                <fieldset className="link-test-radio">
+                  <legend>Link Test Radio</legend>
+                  <div className="field-grid">
+                    {number(
+                      "link_test_download_mbps",
+                      "Link Test Radio Download (Mbps)",
+                    )}
+                    {number(
+                      "link_test_upload_mbps",
+                      "Link Test Radio Upload (Mbps)",
+                    )}
+                  </div>
+                </fieldset>
               </>
             )}
-            <Field label="Keterangan">
-              <textarea
-                value={b.notes || ""}
-                maxLength={5000}
-                rows={3}
-                onChange={(e) => update("notes", e.target.value || null)}
-              />
-            </Field>
-            <details>
-              <summary>Field Nusanet / hasil format lama</summary>
-              <div className="field-grid">
-                {number("agreement_mbps", "Service Agreement (Mbps)")}
-                {number("speedtest_mbps", "Speedtest format lama (Mbps)")}
-                {key === "wireless" && (
-                  <>
-                    {number("tx_mbps", "TX rate (Mbps)")}
-                    {number("rx_mbps", "RX rate (Mbps)")}
-                    {number("ccq_percent", "CCQ / Link test (%)", 0, 100)}
-                  </>
-                )}
-              </div>
-              <p className="muted">
-                Field lama tetap disimpan. Pengukuran ini input manual, bukan
-                hasil Wi-Fi native.
-              </p>
-            </details>
+            <div className="field-grid">
+              {number(
+                "download_mbps",
+                key === "wireless"
+                  ? "Bandwidth Test Download (Mbps)"
+                  : "Download (Mbps)",
+              )}
+              {number(
+                "upload_mbps",
+                key === "wireless"
+                  ? "Bandwidth Test Upload (Mbps)"
+                  : "Upload (Mbps)",
+              )}
+            </div>
           </>
         )}
       </Card>
@@ -193,7 +181,6 @@ export function ReportForm({
     >
       <div className="section-heading">
         <div>
-          <p className="eyebrow">TEMPLATE NUSANET</p>
           <h2>Laporan Utama</h2>
         </div>
         <Badge tone={hasDraft ? "warning" : "neutral"}>
@@ -207,40 +194,43 @@ export function ReportForm({
         </Message>
       )}
       <fieldset className="form-body" disabled={!editable || busy}>
-        <Card title="Informasi pelanggan">
-          <p className="muted">
-            {visit.site?.customer_name || visit.site?.name}
-          </p>
-          {text("pic_name", "Nama PIC")}
-          {text("pic_contact", "Kontak PIC")}
-          <Field label="Koneksi backbone">
-            <select
-              value={r.backbone_mode || ""}
-              onChange={(e) =>
-                set(
-                  "backbone_mode",
-                  (e.target.value as Report["backbone_mode"]) || null,
-                )
-              }
-            >
-              <option value="">Belum dipilih</option>
-              {[
-                ["fo_only", "FO saja"],
-                ["wireless_only", "Wireless saja"],
-                ["both", "FO + wireless"],
-                ["failover", "FO + wireless / failover"],
-                ["bonding", "FO + wireless / bonding"],
-              ].map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </Card>
+        <details className="card customer-details report-fold">
+          <summary>Informasi Pelanggan</summary>
+          <div className="stack">
+            <p className="muted">
+              {visit.site?.customer_name || visit.site?.name}
+            </p>
+            {text("pic_name", "Nama PIC")}
+            {text("pic_contact", "Kontak PIC")}
+            <Field label="Koneksi backbone">
+              <select
+                value={r.backbone_mode || ""}
+                onChange={(e) =>
+                  set(
+                    "backbone_mode",
+                    (e.target.value as Report["backbone_mode"]) || null,
+                  )
+                }
+              >
+                <option value="">Belum dipilih</option>
+                {[
+                  ["fo_only", "FO saja"],
+                  ["wireless_only", "Wireless saja"],
+                  ["both", "FO + wireless"],
+                  ["failover", "FO + wireless / failover"],
+                  ["bonding", "FO + wireless / bonding"],
+                ].map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        </details>
         {branch("fo", "Backbone Fiber Optic")}
         {branch("wireless", "Wireless Backbone")}
-        <Card title="Local Area Network">
+        <Card title="Local Area Network" collapsible>
           {checks.map(([key, label, choices], i) => {
             const noteKey = (key + "_notes") as keyof Report;
             return (
@@ -278,13 +268,10 @@ export function ReportForm({
               </article>
             );
           })}
-          {r.lan_notes && (
-            <p className="muted">Catatan LAN lama: {r.lan_notes}</p>
-          )}
         </Card>
         <Card title="Hasil pekerjaan">
-          {text("summary", "Ringkasan / hasil pemeriksaan", true)}
-          <Field label="Hasil pekerjaan">
+          {text("summary", "Ringkasan pemeriksaan", true)}
+          <Field label="Status Pekerjaan">
             <select
               value={r.work_status || ""}
               onChange={(e) =>
@@ -299,20 +286,11 @@ export function ReportForm({
               <option value="pending">Pending / tindak lanjut</option>
             </select>
           </Field>
-          {text("pending_reason", "Alasan pekerjaan pending", true)}
-          {text("customer_feedback", "Feedback pelanggan", true)}
-          {text("solution", "Solusi / tindak lanjut", true)}
-          {text(
-            "pic_exception_reason",
-            "Alasan pengecualian tanda tangan PIC",
-            true,
-          )}
-          <p className="muted">
-            Persetujuan dan tanda tangan digital PIC belum tersedia.
-          </p>
+          {r.work_status === "pending" &&
+            text("pending_reason", "Alasan pending", true)}
         </Card>
         <button className="primary wide" disabled={!hasDraft || busy}>
-          {busy ? "Menyimpan…" : "Simpan laporan ke server"}
+          {busy ? "Menyimpan…" : "Simpan Laporan"}
         </button>
       </fieldset>
       <p className="muted small">

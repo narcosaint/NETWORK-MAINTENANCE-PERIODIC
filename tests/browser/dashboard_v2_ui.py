@@ -35,7 +35,7 @@ def run():
             page.evaluate('''data=>{state.token='fixture';state.user={id:'test-tech',name:'QA',role:'technician'};state.data=data;document.querySelector('#workspace').hidden=false;document.querySelector('#login-view').hidden=true;}''',data)
             page.evaluate("openSampling('test-visit')")
             expect(page.locator('.v2-dashboard')).to_be_visible()
-            expect(page.locator('.v2-progress')).to_contain_text('1/4 titik selesai')
+            expect(page.locator('.v2-progress')).to_contain_text('1/4 area selesai')
             expect(page.locator('.v2-stats .v2-stat').nth(3)).to_contain_text('0')
             page.locator('.v2-floor summary').click()
             expect(page.locator('.v2-metrics')).to_contain_text('18.5 Mbps')
@@ -47,7 +47,7 @@ def run():
             assert page.evaluate("v2Evidence({item:{result:{outcome:'fail'},photos:[{}],speedtests:[{status:'failed',error:'Tidak ada koneksi'}]}}).done")==True
             assert page.evaluate("v2Evidence({item:{result:{outcome:'fail'},photos:[{}],speedtests:[{status:'failed',error:' '}]}}).done")==False
             page.evaluate("samplingView.drafts['local:server:26:0']={status:'good'};renderSampling()")
-            expect(page.locator('.v2-progress')).to_contain_text('1/4 titik selesai')
+            expect(page.locator('.v2-progress')).to_contain_text('1/4 area selesai')
             # Screenshot one actual-data fixture, with no synthetic charts or network claims.
             for width in (1440,768,430,390,360):
                 page.set_viewport_size({'width':width,'height':1050})

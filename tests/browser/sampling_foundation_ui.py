@@ -28,10 +28,14 @@ class Quiet(SimpleHTTPRequestHandler):
 
 
 def run():
+    prior_field = os.environ.get('SAMPLING_FIELD_ENABLED')
+    os.environ['SAMPLING_FIELD_ENABLED'] = 'true'
     prior_gate = os.environ.get('SAMPLING_MASTER_ENABLED')
     prior_observations = os.environ.get('SAMPLING_OBSERVATIONS_ENABLED')
+    prior_speedtests = os.environ.get('SAMPLING_SPEEDTEST_ENABLED')
     os.environ['SAMPLING_MASTER_ENABLED'] = 'true'
     os.environ['SAMPLING_OBSERVATIONS_ENABLED'] = 'true'
+    os.environ['SAMPLING_SPEEDTEST_ENABLED'] = 'true'
     engine = create_engine('sqlite://', connect_args={'check_same_thread': False}, poolclass=StaticPool)
     @event.listens_for(engine, 'connect')
     def foreign_keys(connection, record):
@@ -80,7 +84,7 @@ def run():
                            if key in ('authorization', 'content-type')}
                 response = worker.submit(api.request, route.request.method, path + ('?' + query if query else ''),
                     headers=headers, content=route.request.post_data_buffer).result()
-                if drop_ack[0] and route.request.method == 'POST' and path.endswith('/observations'):
+                if drop_ack[0] and route.request.method == 'POST' and (path.endswith('/observations') or path.endswith('/sampling-locations')):
                     drop_ack[0] = False
                     route.abort('internetdisconnected')
                     return
@@ -124,7 +128,7 @@ def run():
             form.locator('[name=sampling][value=ap]').check()
             form.locator('[name=reviewed]').check()
             form.locator('button').click()
-            expect(page.locator('#server-coverage')).to_contain_text('snapshot tersimpan')
+            expect(page.locator('#server-coverage')).to_have_count(0)
             expect(page.locator('#activate-sampling-coverage')).to_have_count(0)
             assert page.evaluate('samplingPoints(samplingView)[0].points.length') == 4
             assert page.evaluate('samplingPoints(samplingView)[0].points.every(p=>p.session&&!p.item)')
@@ -132,8 +136,8 @@ def run():
             api_call('PATCH', f"/hotels/{visit['hotel_id']}/floors/{floor_id}", headers=admin,
                       json={'expected_version': 1, 'name': 'Master renamed'})
             page.evaluate('(id)=>openSampling(id)', visit['id'])
-            expect(page.locator('#server-coverage')).to_contain_text('Lantai QA <script>')
-            expect(page.locator('#server-coverage')).not_to_contain_text('Master renamed')
+            expect(page.locator('.v2-dashboard')).to_contain_text('Lantai QA <script>')
+            expect(page.locator('.v2-dashboard')).not_to_contain_text('Master renamed')
             current = api_call('GET', '/hotel-visits/' + visit['id'], headers=tech).json()
             assert api_call('POST', '/hotel-visits/' + visit['id'] + '/check-in', headers=tech, json={
                 'expected_version': current['version'], 'device_time': '2026-11-16T00:00:00Z',
@@ -158,27 +162,44 @@ def run():
             page.get_by_label('Password', exact=True).fill('strong-secret-456')
             page.get_by_role('button', name='Masuk', exact=False).click()
             page.get_by_role('button', name='Buka maintenance', exact=False).first.click()
-            expect(page.get_by_role('heading', name='Cakupan sampling kunjungan')).to_be_visible()
-            expect(page.locator('.app-content')).to_contain_text('Lantai QA <script>')
+            expect(page.get_by_role('heading',name='Cakupan sampling kunjungan')).to_have_count(0)
             expect(page.locator('.app-content')).not_to_contain_text('Master renamed')
-            page.get_by_role('button', name='Sampling Wi-Fi', exact=False).click()
-            expect(page.locator('.floor-points button')).to_have_count(4)
-            expect(page.locator('.floor-card')).to_contain_text('0/4 titik selesai')
+            page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button', name='Network Test', exact=True).click()
+            expect(page.locator('.app-content')).to_contain_text('Lantai QA <script>')
+            expect(page.locator('.floor-points .area-row>button:first-child')).to_have_count(4)
+            expect(page.locator('.floor-card')).to_contain_text('0/4 area selesai')
             assert page.locator('.floor-points script,.floor-points img').count() == 0
-            page.locator('.floor-points button').first.click()
-            page.get_by_role('tab', name='Foto & Catatan', exact=True).click()
-            expect(page.get_by_label('Catatan teknisi', exact=True)).to_have_value('Catatan Web tersimpan')
-            page.get_by_label('Catatan teknisi', exact=True).fill('Catatan Android diterima meski respons hilang')
+            page.locator('.floor-points .area-row>button:first-child').first.click()
+            page.locator('#sampling-panel').wait_for()
+            page.get_by_text('Temuan dan Tindakan',exact=True).first.click()
+            expect(page.get_by_label('Temuan dan Tindakan', exact=True)).to_have_value('Catatan Web tersimpan')
+            page.get_by_label('Temuan dan Tindakan', exact=True).fill('Catatan Android diterima meski respons hilang')
             drop_ack[0] = True
-            page.get_by_role('button', name='Simpan catatan ke server', exact=True).click()
+            page.get_by_role('button', name='Simpan Hasil', exact=True).click()
             expect(page.locator('.app-content')).to_contain_text('Server tidak dapat dihubungi')
-            page.get_by_role('button', name='Simpan catatan ke server', exact=True).click()
-            expect(page.locator('.app-content')).to_contain_text('Catatan titik tersimpan di server')
+            page.get_by_role('button', name='Simpan Hasil', exact=True).click()
+            expect(page.locator('.app-content')).to_contain_text('Hasil area tersimpan di server')
             current = api_call('GET', '/hotel-visits/' + visit['id'], headers=tech).json()
             point = current['sampling_coverage']['floors'][0]['points'][0]
             history = api_call('GET', f"/hotel-visits/{visit['id']}/sampling-sessions/{point['id']}/observations", headers=tech).json()
             assert len(history) == 2, history
             assert history[0]['notes']['notes'] == 'Catatan Android diterima meski respons hilang'
+            # Selector navigates to a different area; it must not move previous notes.
+            second_area=current['sampling_coverage']['floors'][0]['points'][1]
+            expect(page.get_by_role('button',name='Simpan Hasil',exact=True)).to_be_visible()
+            page.get_by_label('Lokasi sampling',exact=True).select_option(second_area['id'])
+            page.get_by_text('Temuan dan Tindakan',exact=True).first.click()
+            expect(page.get_by_label('Temuan dan Tindakan',exact=True)).to_be_visible()
+            page.get_by_label('Temuan dan Tindakan',exact=True).fill('QA temuan khusus area kedua')
+            page.get_by_role('button',name='Simpan Hasil',exact=True).click()
+            expect(page.locator('.app-content')).to_contain_text('Hasil area tersimpan di server')
+            second_history=api_call('GET',f"/hotel-visits/{visit['id']}/sampling-sessions/{second_area['id']}/observations",headers=tech).json()
+            assert len(second_history)==1 and second_history[0]['notes']['notes']=='QA temuan khusus area kedua'
+            page.get_by_label('Lokasi sampling',exact=True).select_option(point['id'])
+            page.get_by_text('Temuan dan Tindakan',exact=True).first.click()
+            expect(page.get_by_label('Temuan dan Tindakan',exact=True)).to_have_value('Catatan Android diterima meski respons hilang')
+            current=api_call('GET','/hotel-visits/'+visit['id'],headers=tech).json()
+            point=current['sampling_coverage']['floors'][0]['points'][0]
             # Synthetic QA radio payload in this disposable DB tests rendering and
             # caching only; this is not a physical Android radio measurement.
             from uuid import uuid4
@@ -197,18 +218,42 @@ def run():
             assert api_call('POST', f"/hotel-visits/{visit['id']}/sampling-sessions/{point['id']}/observations",headers=tech,json=radio).status_code==201
             page.get_by_role('button',name='Muat ulang kunjungan',exact=True).click()
             expect(page.locator('.network-grid')).to_contain_text('QA WiFi fixture')
+            page.locator('#sampling-panel').wait_for()
+            expect(page.get_by_role('heading',name='Wi-Fi Scanner',exact=True)).to_be_visible()
             page.get_by_role('button',name='5 GHz',exact=True).click()
             expect(page.locator('.wifi-networks li')).to_have_count(2)
             expect(page.locator('.wifi-networks')).to_contain_text('SSID tersembunyi')
             expect(page.locator('.wifi-graph')).to_have_count(1)
-            page.get_by_role('button', name='Sampling', exact=True).click()
+            page.locator('#sampling-panel').wait_for()
+            expect(page.get_by_role('button',name='Mulai Speedtest · Belum tersedia',exact=True)).to_be_disabled()
+            expect(page.get_by_role('button',name='Catat gagal uji',exact=False)).to_have_count(0)
+            page.get_by_role('button', name='Network Test', exact=True).click()
+            # Technician adds real named field scope through Android -> actual API.
+            page.get_by_role('button',name='Tambah Area',exact=True).click()
+            page.get_by_label('Nama lantai / kelompok',exact=True).fill('Rooftop QA lapangan')
+            page.get_by_label('Nama area 1',exact=True).fill('Lift barat QA')
+            drop_ack[0]=True
+            page.get_by_role('button',name='Simpan area',exact=True).click()
+            expect(page.get_by_role('button',name='Kirim ulang area',exact=True)).to_be_enabled()
+            page.get_by_role('button',name='Kirim ulang area',exact=True).click()
+            expect(page.get_by_role('status').filter(has_text='Area tersimpan.')).to_be_visible()
+            expect(page.locator('.floor-points .area-row>button:first-child')).to_have_count(5)
+            updated=api_call('GET','/hotel-visits/'+visit['id'],headers=tech).json()
+            fieldfloor=updated['sampling_coverage']['floors'][-1]
+            assert fieldfloor['name']=='Rooftop QA lapangan' and fieldfloor['target_count']==2
+            assert len(fieldfloor['points'])==1 and fieldfloor['points'][0]['device'] is None
+            assert updated['sampling_coverage']['floors'][0]['points'][0]['id']==point['id']
+            page.get_by_label('Lantai / kelompok area',exact=True).select_option(fieldfloor['id'])
+            page.get_by_label('Nama area 1',exact=True).fill('Koridor utara QA')
+            page.get_by_role('button',name='Simpan area',exact=True).click()
+            expect(page.locator('.floor-points .area-row>button:first-child')).to_have_count(6)
             for width in (360, 390, 768):
                 page.set_viewport_size({'width': width, 'height': 1000})
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'), width
             offline[0] = True
             page.get_by_role('button', name='Muat ulang kunjungan', exact=True).click()
-            expect(page.locator('.app-content')).to_contain_text('Snapshot cache perangkat')
-            expect(page.locator('.floor-points button')).to_have_count(4)
+            expect(page.locator('.app-content')).to_contain_text('Data cache perangkat')
+            expect(page.locator('.floor-points .area-row>button:first-child')).to_have_count(6)
             artifacts = ROOT / 'artifacts/sampling-foundation'
             artifacts.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=str(artifacts / 'android-coverage-offline.png'), full_page=True)
@@ -222,10 +267,14 @@ def run():
         app.dependency_overrides.clear()
         app.dependency_overrides.update(previous_overrides)
         engine.dispose()
+        if prior_field is None: os.environ.pop('SAMPLING_FIELD_ENABLED', None)
+        else: os.environ['SAMPLING_FIELD_ENABLED'] = prior_field
         if prior_gate is None: os.environ.pop('SAMPLING_MASTER_ENABLED', None)
         else: os.environ['SAMPLING_MASTER_ENABLED'] = prior_gate
         if prior_observations is None: os.environ.pop('SAMPLING_OBSERVATIONS_ENABLED', None)
         else: os.environ['SAMPLING_OBSERVATIONS_ENABLED'] = prior_observations
+        if prior_speedtests is None: os.environ.pop('SAMPLING_SPEEDTEST_ENABLED', None)
+        else: os.environ['SAMPLING_SPEEDTEST_ENABLED'] = prior_speedtests
 
 
 if __name__ == '__main__':

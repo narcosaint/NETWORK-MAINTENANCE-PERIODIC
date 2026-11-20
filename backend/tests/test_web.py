@@ -20,5 +20,10 @@ def test_login_page_and_assets_are_same_origin_with_security_headers():
     master = client.get('/assets/sampling-master.js')
     assert master.status_code == 200
     assert 'javascript' in master.headers['content-type']
-    assert 'sampling-master.js?v=coverage-1' in response.text
+    assert 'sampling-master.js?v=review-recovery-1.7' in response.text
     assert client.get('/assets/sampling-observations.js').status_code == 200
+
+    assert '<title>Nusa Maintenance' in response.text
+    for name in ('nusa-maintenance-logo.png','nusa-maintenance-icon.png'):
+        asset=client.get('/assets/brand/'+name)
+        assert asset.status_code==200 and asset.headers['content-type']=='image/png'

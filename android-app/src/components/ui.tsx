@@ -27,11 +27,20 @@ export function Card({
   title,
   children,
   action,
+  collapsible = false,
 }: {
   title?: string;
   children: ReactNode;
   action?: ReactNode;
+  collapsible?: boolean;
 }) {
+  if (collapsible)
+    return (
+      <details className="card report-fold">
+        <summary>{title}</summary>
+        <div className="report-fold-body">{children}</div>
+      </details>
+    );
   return (
     <section className="card">
       {title && (
@@ -78,7 +87,7 @@ export function Message({
 export function Meter({
   done,
   total,
-  label = "Progress sampling",
+  label = "Progress test area",
 }: {
   done: number;
   total: number;
@@ -88,7 +97,7 @@ export function Meter({
     <div className="meter">
       <div>
         <span>{label}</span>
-        <strong>{total ? `${done}/${total} titik` : "Belum diperiksa"}</strong>
+        <strong>{total ? `${done}/${total} area` : "Belum diperiksa"}</strong>
       </div>
       <progress value={done} max={total || 1} aria-label={label} />
     </div>
@@ -143,11 +152,16 @@ export function Header({
           </button>
         ) : (
           <span className="brand-icon">
-            <Wifi />
+            <img
+              src="/brand/nusa-maintenance-icon.png"
+              alt="Nusa Maintenance"
+              width="44"
+              height="44"
+            />
           </span>
         )}
         <div>
-          <p className="eyebrow">HOTEL NETWORK</p>
+          <p className="eyebrow">NUSA MAINTENANCE</p>
           <h1>{title}</h1>
           {subtitle && <p className="header-subtitle">{subtitle}</p>}
         </div>
@@ -201,7 +215,7 @@ export function Steps({
         [
           { route: "hotel", label: "Hotel", Icon: Building2 },
           { route: "report", label: "Laporan", Icon: ListChecks },
-          { route: "floors", label: "Sampling", Icon: Wifi },
+          { route: "floors", label: "Network Test", Icon: Wifi },
           { route: "review", label: "Review", Icon: ClipboardCheck },
         ] as const
       ).map(({ route, label, Icon }) => (

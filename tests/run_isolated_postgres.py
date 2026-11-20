@@ -55,7 +55,7 @@ def main():
         test_staging.STAGING_URL = URL.create('postgresql+psycopg', username='hotel_test',
             host=str(socket), port=55432, database='hotel_sampling_test')
         print(run('postgres', '--version').stdout.strip(), flush=True)
-        print('Isolated database; Unix socket only; active migration head stays 0009.', flush=True)
+        print('Isolated database; Unix socket only; reviewed migration chain through 0014.', flush=True)
         import pytest
         return pytest.main(['-q', str(root / 'backend/tests/test_sampling_postgres.py'),
                             str(root / 'backend/tests/test_staging.py')])

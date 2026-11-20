@@ -1,3 +1,5 @@
+import { ConfirmDialog } from "./components/ConfirmDialog";
+import { ContactProfile } from "./components/ContactProfile";
 import { useEffect, useState } from "react";
 import { App as NativeApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
@@ -63,7 +65,8 @@ export default function App() {
     [error, setError] = useState(""),
     [revision, setRevision] = useState(0),
     [cached, setCached] = useState(false),
-    [loggingOut, setLoggingOut] = useState(false);
+    [loggingOut, setLoggingOut] = useState(false),
+    [confirmLogout, setConfirmLogout] = useState(false);
   useEffect(() => {
     if (!session) return;
     let active = true;
@@ -173,8 +176,8 @@ export default function App() {
       schedule: "Jadwal Maintenance",
       hotel: "Detail Hotel",
       report: "Laporan Utama",
-      floors: "Sampling Wi-Fi",
-      point: "Detail Sampling",
+      floors: "Network Test",
+      point: "Detail Area",
       review: "Review Laporan",
       profile: "Profil Teknisi",
     } as Record<Route, string>
@@ -269,41 +272,32 @@ export default function App() {
                 {user.active ? "Akun aktif" : "Akun tidak aktif"}
               </Badge>
             </Card>
+            <ContactProfile
+              api={api}
+              scope={accountScope(api.origin, user.id)}
+              online={online}
+            />
             <Card title="Status sinkronisasi">
               <SyncStatus scope={accountScope(api.origin, user.id)} />
               <p className="muted">
-                Laporan utama dapat disimpan ke server secara manual.
-                Catatan/foto sampling hanya lokal; sinkronisasi otomatis belum
-                tersedia.
+                Laporan, hasil pengujian dan foto tersimpan ke server melalui
+                tombol yang tersedia. Saat Review, draf yang masih menunggu akan
+                dikirim sebelum tanda tangan PIC.
               </p>
               <p className="muted">
                 Draf dipisahkan per server, akun, kunjungan dan titik. Tidak
                 dihapus ketika logout.
               </p>
-              <p className="small server-origin">Server: {api.origin}</p>
+              <p>Status koneksi: {online ? "Online" : "Offline"}</p>
+              <p>Versi aplikasi: 1.7.0</p>
+              <p>
+                Penugasan: {visits.length} · Lokasi: {hotels.length}
+              </p>
             </Card>
             <button
               className="secondary wide"
               disabled={loggingOut}
-              onClick={async () => {
-                setLoggingOut(true);
-                let feedback = "";
-                try {
-                  await api.logout();
-                } catch {
-                  feedback =
-                    "Logout lokal selesai. Server tidak dapat dihubungi untuk mencabut sesi; token mengikuti kedaluwarsa server.";
-                } finally {
-                  api.setToken(null);
-                  setSession(null);
-                  setVisits([]);
-                  setHotels([]);
-                  setSelected(null);
-                  setRoute("home");
-                  setMessage(feedback);
-                  setLoggingOut(false);
-                }
-              }}
+              onClick={() => setConfirmLogout(true)}
             >
               {loggingOut ? "Keluar…" : "Logout"}
             </button>
@@ -336,14 +330,14 @@ export default function App() {
                   <Card>
                     <CalendarDays />
                     <strong>{visits.length}</strong>
-                    <span>Penugasan</span>
+                    <span>Jumlah Penugasan</span>
                   </Card>
                   <Card>
                     <CheckCheck />
                     <strong>
                       {visits.filter((v) => v.maintenance_completed).length}
                     </strong>
-                    <span>PM selesai</span>
+                    <span>Jumlah Tugas Selesai</span>
                   </Card>
                 </div>
                 <Card title="Progress pekerjaan">
@@ -364,7 +358,7 @@ export default function App() {
                     </span>
                   </div>
                   <p className="muted">
-                    Progress sampling terlihat di detail penugasan.
+                    Progress Network Test terlihat di detail penugasan.
                   </p>
                 </Card>
               </>
@@ -403,6 +397,30 @@ export default function App() {
           </div>
         )}
       </main>
+      <ConfirmDialog
+        open={confirmLogout}
+        onCancel={() => setConfirmLogout(false)}
+        onConfirm={async () => {
+          setConfirmLogout(false);
+          setLoggingOut(true);
+          let feedback = "";
+          try {
+            await api.logout();
+          } catch {
+            feedback =
+              "Logout lokal selesai. Server tidak dapat dihubungi untuk mencabut sesi; token mengikuti kedaluwarsa server.";
+          } finally {
+            api.setToken(null);
+            setSession(null);
+            setVisits([]);
+            setHotels([]);
+            setSelected(null);
+            setRoute("home");
+            setMessage(feedback);
+            setLoggingOut(false);
+          }
+        }}
+      />
       <BottomNav route={route} go={setRoute} />
     </div>
   );

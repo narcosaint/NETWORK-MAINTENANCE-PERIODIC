@@ -101,7 +101,7 @@ def test_upgrade_preserves_existing_inventory(staging_engine):
     with staging_engine.connect() as connection:
         assert connection.execute(text('SELECT name FROM hotels WHERE id=:id'), {'id': hotel_id}).scalar_one() == 'Isolated staging hotel'
         assert connection.execute(text('SELECT hotel_id FROM devices WHERE id=:id'), {'id': device_id}).scalar_one() == hotel_id
-        assert connection.execute(text('SELECT version_num FROM alembic_version')).scalar_one() == '0009_site_report_profile'
+        assert connection.execute(text('SELECT version_num FROM alembic_version')).scalar_one() == '0014_user_contact_profile'
         assert connection.execute(text('SELECT brand FROM devices WHERE id=:id'), {'id': device_id}).scalar_one() is None
         assert connection.execute(text('SELECT count(*) FROM users')).scalar_one() == 0
         assert connection.execute(text('SELECT count(*) FROM visit_events')).scalar_one() == 0

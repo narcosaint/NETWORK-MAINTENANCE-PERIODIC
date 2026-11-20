@@ -68,7 +68,11 @@ export function ReviewInspectionSummary({
   const evidence = points.map(pointEvidence),
     done = evidence.filter((e) => e.done).length;
   const sampled = points.some(
-    (p) => p.item?.result?.outcome || p.item?.speedtests?.length,
+    (p) =>
+      p.item?.result?.outcome ||
+      p.item?.speedtests?.length ||
+      p.session?.observation ||
+      p.session?.speedtests?.length,
   );
   const entries = [
     { title: "Backbone Fiber Optic", ...backboneSummary(report.fo) },
@@ -92,7 +96,7 @@ export function ReviewInspectionSummary({
       detail: `${count}/5 item LAN tersimpan.`,
     },
     {
-      title: "Sampling Wi-Fi",
+      title: "Network Test",
       label: !sampled
         ? "Belum diperiksa"
         : evidence.some((e) => e.problem)
@@ -108,8 +112,8 @@ export function ReviewInspectionSummary({
             ? "success"
             : "warning",
       detail: points.length
-        ? `${done}/${points.length} titik selesai.`
-        : "Belum ada titik server.",
+        ? `${done}/${points.length} area selesai.`
+        : "Belum ada area server.",
     },
   ];
   return (

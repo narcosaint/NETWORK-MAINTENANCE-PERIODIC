@@ -93,3 +93,25 @@ def test_legacy_report_remains_readable_without_reinterpreting_old_measurements(
     assert checkout(api,path,assigned).status_code==200
     assert mutate(api,path,admin,'/review',{'decision':'approved','reason':'Historical format reviewed'}).status_code==200
     assert api.get(path,headers=assigned).json()['report']==report
+
+
+
+def test_numeric_wireless_link_test_roundtrips_without_dropping_legacy_values(client):
+    from copy import deepcopy
+    from test_speedtests import setup_sample
+    from test_hotel_visits import mutate
+    api,_=client
+    _,tech,_,path,_=setup_sample(api)
+    before=api.get(path,headers=tech).json()
+    report=deepcopy(before['report'])
+    report.update(form_version=2,backbone_mode='both',customer_feedback='QA saved feedback',lan_notes='QA legacy LAN')
+    report['wireless']={'link_test_download_mbps':0,'link_test_upload_mbps':125.5,'tx_mbps':30,'rx_mbps':20,'ccq_percent':95,'link_test_radio':'QA legacy radio text'}
+    result=mutate(api,path,tech,'/report',{'report':report},method='put')
+    assert result.status_code==200,result.text
+    saved=result.json()['report']
+    assert saved['wireless']['link_test_download_mbps']==0
+    assert saved['wireless']['link_test_upload_mbps']==125.5
+    assert saved['wireless']['link_test_radio']=='QA legacy radio text' and saved['wireless']['tx_mbps']==30
+    assert saved['customer_feedback']=='QA saved feedback' and saved['lan_notes']=='QA legacy LAN'
+    saved['wireless']['link_test_upload_mbps']=-1
+    assert mutate(api,path,tech,'/report',{'report':saved},method='put').status_code==422

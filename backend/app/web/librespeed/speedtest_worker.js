@@ -39,6 +39,10 @@ function twarn(s) {
 let settings = {
     hotel_transfer_token: "",
     hotel_run_id: "",
+    hotel_endpoint_origin: "",
+    hotel_dl_budget_bytes: 512 * 1024 * 1024,
+    hotel_ul_budget_bytes: 128 * 1024 * 1024,
+    hotel_dl_chunk_bytes: 4 * 1024 * 1024,
 	mpot: false, //set to true when in MPOT mode
 	test_order: "IP_D_U", //order in which tests will be performed as a string. D=Download, U=Upload, P=Ping+Jitter, I=IP, _=1 second delay
 	time_ul_max: 15, // max duration of upload test in seconds
@@ -73,7 +77,7 @@ let settings = {
 
 // Hotel Maintenance modification: purpose-bound transfer token in a request header.
 // No application login token is sent to this worker or included in a URL.
-// Header is attached only to the exact same-origin run path selected by the app.
+// Header is attached only to the selected origin and exact run transfer endpoints.
 const hotelOriginalOpen = XMLHttpRequest.prototype.open;
 const hotelOriginalSend = XMLHttpRequest.prototype.send;
 XMLHttpRequest.prototype.open = function(method, url, ...args) {
@@ -82,8 +86,8 @@ XMLHttpRequest.prototype.open = function(method, url, ...args) {
 };
 XMLHttpRequest.prototype.send = function(body) {
     if (settings.hotel_transfer_token && this.hotelTarget &&
-        this.hotelTarget.origin === self.location.origin &&
-        this.hotelTarget.pathname.startsWith('/network-speedtests/transfer/' + settings.hotel_run_id + '/')) {
+        this.hotelTarget.origin === (settings.hotel_endpoint_origin || self.location.origin) &&
+        ['ping', 'download', 'upload'].some(endpoint => this.hotelTarget.pathname === '/network-speedtests/transfer/' + settings.hotel_run_id + '/' + endpoint)) {
         this.setRequestHeader('X-Speedtest-Token', settings.hotel_transfer_token);
     }
     return hotelOriginalSend.call(this, body);
@@ -116,6 +120,7 @@ this.addEventListener("message", function(e) {
 			JSON.stringify({
 				testState: testState,
 				dlStatus: dlStatus,
+                    hotel_error: hotelTransferError,
 				ulStatus: ulStatus,
 				pingStatus: pingStatus,
 				clientIp: clientIp,
@@ -338,6 +343,9 @@ function getIp(done) {
 	xhr.send();
 }
 // download test, calls done function when it's over
+let hotelDlReserved = 0, hotelDlActive = 0, hotelDlBudgetDone = false;
+let hotelUlReserved = 0, hotelUlActive = 0, hotelUlBudgetDone = false;
+let hotelTransferError = "";
 let dlCalled = false; // used to prevent multiple accidental calls to dlTest
 function dlTest(done) {
 	tverb("dlTest");
@@ -346,14 +354,20 @@ function dlTest(done) {
 	let totLoaded = 0.0, // total number of loaded bytes
 		startT = new Date().getTime(), // timestamp when test was started
 		bonusT = 0, //how many milliseconds the test has been shortened by (higher on faster connections)
-		graceTimeDone = false, //set to true after the grace time is past
+		graceTimeDone = !!settings.hotel_transfer_token, // purpose-bound tests retain all bytes within their budget
 		failed = false; // set to true if a stream fails
 	xhr = [];
 	// function to create a download stream. streams are slightly delayed so that they will not end at the same time
 	const testStream = function(i, delay) {
 		setTimeout(
 			function() {
-				if (testState !== 1) return; // delayed stream ended up starting after the end of the download test
+				if (testState !== 1 || !xhr || failed) return; // delayed stream ended up starting after the end of the download test
+                if (settings.hotel_transfer_token) {
+                    if (hotelDlReserved + settings.hotel_dl_chunk_bytes > settings.hotel_dl_budget_bytes) { hotelDlBudgetDone = true; return; }
+                    hotelDlReserved += settings.hotel_dl_chunk_bytes; hotelDlActive++;
+                }
+                let hotelEnded = false;
+                const hotelEnd = () => { if (!hotelEnded) { hotelEnded = true; hotelDlActive = Math.max(0, hotelDlActive - 1); } };
 				tverb("dl test stream started " + i + " " + delay);
 				let prevLoaded = 0; // number of bytes loaded last time onprogress was called
 				let x = new XMLHttpRequest();
@@ -372,7 +386,8 @@ function dlTest(done) {
 					prevLoaded = event.loaded;
 				}.bind(this);
 				xhr[i].onload = function() {
-					if (x.status < 200 || x.status >= 300) { failed = true; try { x.abort(); } catch (e) {} delete xhr[i]; return; }
+					hotelEnd();
+                    if (x.status < 200 || x.status >= 300) { hotelTransferError = "Download gagal HTTP " + x.status; failed = true; try { x.abort(); } catch (e) {} delete xhr[i]; return; }
 					// the large file has been loaded entirely, start again
 					tverb("dl stream finished " + i);
 					try {
@@ -383,6 +398,7 @@ function dlTest(done) {
 				xhr[i].onerror = function() {
 					// error
 					tverb("dl stream failed " + i);
+                    hotelEnd(); hotelTransferError = "Koneksi download terputus";
 					if (settings.xhr_ignoreErrors === 0) failed = true; //abort
 					try {
 						xhr[i].abort();
@@ -431,7 +447,7 @@ function dlTest(done) {
 				}
 				//update status
 				dlStatus = ((speed * 8 * settings.overheadCompensationFactor) / (settings.useMebibits ? 1048576 : 1000000)).toFixed(2); // speed is multiplied by 8 to go from bytes to bits, overhead compensation is applied, then everything is divided by 1048576 or 1000000 to go to megabits/mebibits
-				if ((t + bonusT) / 1000.0 > settings.time_dl_max || failed) {
+				if ((t + bonusT) / 1000.0 > settings.time_dl_max || failed || (hotelDlBudgetDone && hotelDlActive === 0)) {
 					// test is over, stop streams and timer
 					if (failed || isNaN(dlStatus)) dlStatus = "Fail";
 					clearRequests();
@@ -473,14 +489,21 @@ function ulTest(done) {
 		let totLoaded = 0.0, // total number of transmitted bytes
 			startT = new Date().getTime(), // timestamp when test was started
 			bonusT = 0, //how many milliseconds the test has been shortened by (higher on faster connections)
-			graceTimeDone = false, //set to true after the grace time is past
+			graceTimeDone = !!settings.hotel_transfer_token, // purpose-bound tests retain all bytes within their budget
 			failed = false; // set to true if a stream fails
 		xhr = [];
 		// function to create an upload stream. streams are slightly delayed so that they will not end at the same time
 		const testStream = function(i, delay) {
 			setTimeout(
 				function() {
-					if (testState !== 3) return; // delayed stream ended up starting after the end of the upload test
+					if (testState !== 3 || !xhr || failed) return; // delayed stream ended up starting after the end of the upload test
+                    if (settings.hotel_transfer_token) {
+                        const bytes = settings.forceIE11Workaround ? reqsmall.size : req.size;
+                        if (hotelUlReserved + bytes > settings.hotel_ul_budget_bytes) { hotelUlBudgetDone = true; return; }
+                        hotelUlReserved += bytes; hotelUlActive++;
+                    }
+                    let hotelEnded = false;
+                    const hotelEnd = () => { if (!hotelEnded) { hotelEnded = true; hotelUlActive = Math.max(0, hotelUlActive - 1); } };
 					tverb("ul test stream started " + i + " " + delay);
 					let prevLoaded = 0; // number of bytes transmitted last time onprogress was called
 					let x = new XMLHttpRequest();
@@ -499,6 +522,7 @@ function ulTest(done) {
 						// IE11 workaround: xhr.upload does not work properly, therefore we send a bunch of small 256k requests and use the onload event as progress. This is not precise, especially on fast connections
 						xhr[i].onload = xhr[i].onerror = function() {
 							tverb("ul stream progress event (ie11wa)");
+                            hotelEnd();
 							totLoaded += reqsmall.size;
 							testStream(i, 0);
 						};
@@ -529,6 +553,7 @@ function ulTest(done) {
 						}.bind(this);
 						xhr[i].upload.onerror = function() {
 							tverb("ul stream failed " + i);
+                            hotelEnd(); hotelTransferError = "Koneksi upload terputus";
 							if (settings.xhr_ignoreErrors === 0) failed = true;
 							try { x.abort(); } catch (e) {}
 							delete xhr[i];
@@ -536,11 +561,13 @@ function ulTest(done) {
 						}.bind(this);
 						xhr[i].onload = function() {
 							// response complete — check status on captured x, not xhr[i]
+                            hotelEnd();
 							if (x.status >= 200 && x.status < 300) {
 								tverb("ul stream finished " + i);
 								testStream(i, 0);
 							} else {
 								tverb("ul stream failed with HTTP " + x.status + " " + i);
+                                hotelTransferError = "Upload gagal HTTP " + x.status;
 								if (settings.xhr_ignoreErrors === 0) failed = true;
 								try { x.abort(); } catch (e) {}
 								delete xhr[i];
@@ -589,7 +616,7 @@ function ulTest(done) {
 					}
 					//update status
 					ulStatus = ((speed * 8 * settings.overheadCompensationFactor) / (settings.useMebibits ? 1048576 : 1000000)).toFixed(2); // speed is multiplied by 8 to go from bytes to bits, overhead compensation is applied, then everything is divided by 1048576 or 1000000 to go to megabits/mebibits
-					if ((t + bonusT) / 1000.0 > settings.time_ul_max || failed) {
+					if ((t + bonusT) / 1000.0 > settings.time_ul_max || failed || (hotelUlBudgetDone && hotelUlActive === 0)) {
 						// test is over, stop streams and timer
 						if (failed || isNaN(ulStatus)) ulStatus = "Fail";
 						clearRequests();

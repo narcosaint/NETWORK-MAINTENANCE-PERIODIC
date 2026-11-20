@@ -1031,5 +1031,127 @@ progress::-moz-progress-bar {
   }
 }
 
-.wifi-graph{display:block;width:100%;height:auto;color:var(--muted,#53675f)}
-.wifi-networks{list-style:none;padding:0;margin:0;display:grid;gap:12px}.wifi-networks li{display:grid;gap:4px;overflow-wrap:anywhere;padding:12px;border-bottom:1px solid #dce8e2}.wifi-networks span,.wifi-networks small{font-size:12px;color:#526b61}
+.wifi-graph {
+  display: block;
+  width: 100%;
+  height: auto;
+  color: var(--muted, #53675f);
+}
+.wifi-networks {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+.wifi-networks li {
+  display: grid;
+  gap: 4px;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  border-bottom: 1px solid #dce8e2;
+}
+.wifi-networks span,
+.wifi-networks small {
+  font-size: 12px;
+  color: #526b61;
+}
+
+/* Revisi tampilan pengguna: hijau bergradasi dan tahapan lebih tegas. */
+.login-page {
+  background: linear-gradient(145deg, #f3faf6 0%, #e2f2e8 55%, #cde8d9 100%);
+}
+.app-header {
+  background: linear-gradient(115deg, #063f32, #087453);
+}
+.primary {
+  background: linear-gradient(115deg, #075440, #12845e);
+  box-shadow: 0 4px 12px #07544018;
+}
+.steps button {
+  font-weight: 800;
+}
+.customer-details > summary {
+  font-weight: 750;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.link-test-radio {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin: 16px 0;
+  padding: 12px;
+}
+.link-test-radio legend {
+  font-weight: 700;
+  padding: 0 5px;
+}
+
+.signature-pad {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 660 / 240;
+  background: #fff;
+  border: 1px solid #7b9e91;
+  border-radius: 8px;
+  touch-action: none;
+}
+.photo-card img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+}
+
+/* Supplied Nusa brand artwork, retained on its white presentation surface. */
+.login-brand {
+  background: #fff;
+  border-radius: 18px;
+  padding: 18px;
+  margin-bottom: 28px;
+}
+.login-logo {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+.brand-icon {
+  padding: 0;
+  background: transparent;
+  flex-shrink: 0;
+}
+.brand-icon img {
+  display: block;
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+}
+.login-page {
+  color: #18392f;
+}
+.login-page > .eyebrow {
+  color: #075440;
+}
+.login-intro {
+  color: #526b61;
+}
+.report-fold>summary { cursor:pointer; font-size:16px; font-weight:750; padding:4px 0; }
+.report-fold-body { padding-top:18px; }
+.floor-points .area-row { display:grid; grid-template-columns:minmax(0,1fr); gap:4px; }
+.floor-points .area-row>button:first-child { width:100%; }
+.floor-points .area-row>button.secondary { justify-self:end; font-size:11px; padding:6px 10px; }
+textarea { resize:none !important; }
+.customer-details>summary,.report-fold>summary {font-size:16px;font-weight:750;line-height:1.5;font-family:inherit;}
+.consent-line {display:grid;grid-template-columns:18px minmax(0,1fr);gap:10px;align-items:start;padding:12px;background:#edf6f1;border-radius:10px;font-size:12px;line-height:1.6;}
+.consent-line input[type=checkbox] {width:16px;height:16px;min-width:16px;margin:3px 0 0;accent-color:#087453;}
+.file-input {position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;}
+.photo-picker {position:relative;margin:10px 0;}
+.photo-picker-button {display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;cursor:pointer;border:1px dashed #78ab94;border-radius:12px;padding:14px;background:#f0f8f3;color:#075440;font-weight:700;}
+.photo-picker-button small {width:100%;text-align:center;font-weight:400;font-size:11px;}
+.photo-picker:focus-within .photo-picker-button {outline:2px solid #12845e;outline-offset:2px;}
+.photo-picker-button.is-disabled {opacity:.5;pointer-events:none;}
+.confirm-dialog {border:0;border-radius:20px;padding:26px;max-width:360px;width:calc(100% - 40px);color:#18392f;background:#fff;box-shadow:0 18px 70px #063f3240;}
+.confirm-dialog::backdrop {background:#063f3270;backdrop-filter:blur(3px);}
+.confirm-dialog h2 {font-size:20px;margin:16px 0 8px;}.confirm-dialog p {line-height:1.7;color:#526b61;}
+.confirm-symbol {display:grid;place-items:center;background:#e4f2e9;color:#087453;width:54px;height:54px;border-radius:16px;}
+.confirm-actions {display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:22px;}

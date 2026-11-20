@@ -34,7 +34,7 @@ def test_coverage_snapshot_replay_scope_and_legacy_submit_guard(client, monkeypa
     assert saved['period'] == '2026-11-01'
     assert len(saved['floors'][0]['points']) == 4
     assert len({p['id'] for p in saved['floors'][0]['points']}) == 4
-    assert saved['completion_available'] is False
+    assert saved['completion_available'] is True
     assert all(p['status'] == 'untested' for p in saved['floors'][0]['points'])
     assert api.post(route, headers=admin, json=payload).json() == saved
     changed = deepcopy(payload)
@@ -53,7 +53,7 @@ def test_coverage_snapshot_replay_scope_and_legacy_submit_guard(client, monkeypa
         'device_time': '2026-11-16T00:00:00Z', 'gps_exception_reason': 'Test indoor'}).status_code == 200
     before = api.get(path, headers=tech).json()
     response = checkout(api, path, tech)
-    assert response.status_code == 409 and 'Cakupan V2' in response.json()['detail']
+    assert response.status_code == 409 and 'tanda tangan PIC' in response.json()['detail']['message']
     monkeypatch.setenv('SAMPLING_MASTER_ENABLED', 'false')
     assert checkout(api, path, tech).status_code == 409
     after = api.get(path, headers=tech).json()

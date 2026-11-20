@@ -28,19 +28,19 @@ export function SamplingCoveragePanel({
           : "Snapshot tersimpan di server."}
       </p>
       <p>
-        Periode {coverage.period}. Pengukuran per sesi dan submit V2 belum
-        tersedia.
+        Periode {coverage.period}. Penambahan lokasi lapangan dicatat pada
+        kunjungan ini. Lengkapi review PIC sebelum mengirim laporan.
       </p>
       {coverage.floors.map((floor) => (
         <details key={floor.id}>
           <summary>
-            {floor.name} · {floor.points.length} titik · target{" "}
+            {floor.name} · {floor.points.length} area · target{" "}
             {floor.target_count}
           </summary>
           <ul>
             {floor.points.map((point) => (
               <li key={point.id}>
-                {point.name} · {point.device?.name || "AP belum dihubungkan"} ·
+                {point.name} ·
                 Belum Diperiksa
                 {point.location && <p>{point.location}</p>}
               </li>
@@ -49,7 +49,7 @@ export function SamplingCoveragePanel({
         </details>
       ))}
       <p>
-        Foto wajib tiap titik:{" "}
+        Foto wajib tiap area:{" "}
         {coverage.photo_policy.sampling_categories
           .map((category) => photoLabels[category] || category)
           .join(", ") || "Tidak diwajibkan"}

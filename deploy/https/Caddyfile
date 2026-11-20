@@ -1,0 +1,19 @@
+# HTTPS service. Public TCP 443 must reach 10.100.23.103:443.
+# Bootstrap uses HTTP-01 separately; renewal uses TLS-ALPN-01 on port 443.
+{
+	admin off
+	auto_https disable_redirects
+}
+
+maintenance.inisaja.id {
+	bind 10.100.23.103
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+			disable_http_challenge
+		}
+	}
+	reverse_proxy 10.100.23.103:8000 {
+		flush_interval -1
+	}
+}

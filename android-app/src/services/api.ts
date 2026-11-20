@@ -8,14 +8,20 @@ import type {
   SamplingCoverage,
 } from "../types";
 import type { ObservationSubmission, SamplingObservation } from "../types";
+import type { SamplingSpeedtestAttempt, SpeedtestFailure } from "../types";
+import type { SessionStart, SessionFinish, TransferRun } from "../types";
+import type { FieldLocationRequest } from "../types";
 export class ApiError extends Error {
   constructor(
     message: string,
     public status = 0,
+    public detail?: unknown,
   ) {
     super(message);
   }
 }
+export const DEFAULT_API_ORIGIN = "https://maintenance.inisaja.id";
+
 export function normalizeOrigin(
   value: string,
   native = Capacitor.isNativePlatform(),
@@ -108,10 +114,18 @@ export class ApiClient {
       );
     }
     if (status < 200 || status >= 300) {
-      const detail = (data as { detail?: unknown } | null)?.detail;
+      const rawDetail = (data as { detail?: unknown } | null)?.detail;
+      const detail =
+        rawDetail && typeof rawDetail === "object" && "message" in rawDetail
+          ? [
+              (rawDetail as { message: string }).message,
+              ...((rawDetail as { errors?: string[] }).errors || []),
+            ].join(". ")
+          : rawDetail;
       const message =
         status === 409
-          ? "Data server berubah / status tidak sesuai. Draf tetap tersimpan; muat ulang dan tinjau sebelum menyimpan ulang."
+          ? "Data server berubah / status tidak sesuai. Draf tetap tersimpan; muat ulang dan tinjau sebelum menyimpan ulang." +
+            (typeof detail === "string" ? " " + detail : "")
           : status === 403
             ? "Akun tidak memiliki izin untuk tindakan ini."
             : status === 429
@@ -121,7 +135,7 @@ export class ApiClient {
                 : Array.isArray(detail)
                   ? "Data belum valid. Periksa isian laporan."
                   : "Server gagal memproses permintaan.";
-      throw new ApiError(message, status);
+      throw new ApiError(message, status, rawDetail);
     }
     if (
       status !== 204 &&
@@ -153,6 +167,19 @@ export class ApiClient {
     if (!auth.access_token) throw new ApiError("Token server tidak tersedia.");
     this.token = auth.access_token;
     return this.request<User>("/auth/me");
+  }
+  async fieldLocationsEnabled() {
+    const result = await this.request<{ field_locations_enabled: boolean }>(
+      "/sampling-capabilities",
+    );
+    return result.field_locations_enabled === true;
+  }
+  addFieldLocations(visitId: string, data: FieldLocationRequest) {
+    return this.request<{ visit: Visit; replayed: boolean }>(
+      `/hotel-visits/${encodeURIComponent(visitId)}/sampling-locations`,
+      "POST",
+      data,
+    );
   }
   visits() {
     return this.list<Visit>("/hotel-visits");
@@ -211,6 +238,45 @@ export class ApiClient {
       replayed: boolean;
     }>(
       `/hotel-visits/${encodeURIComponent(visitId)}/sampling-sessions/${encodeURIComponent(sessionId)}/observations`,
+      "POST",
+      data,
+    );
+  }
+  reportSpeedtestFailure(
+    visitId: string,
+    sessionId: string,
+    data: SpeedtestFailure,
+  ) {
+    return this.request<{
+      attempt: SamplingSpeedtestAttempt;
+      visit: Visit;
+      replayed: boolean;
+    }>(
+      `/hotel-visits/${encodeURIComponent(visitId)}/sampling-sessions/${encodeURIComponent(sessionId)}/speedtests/failures`,
+      "POST",
+      data,
+    );
+  }
+  startSessionSpeedtest(visitId: string, pointId: string, data: SessionStart) {
+    return this.request<{
+      attempt: SamplingSpeedtestAttempt;
+      visit: Visit;
+      transfer?: TransferRun;
+      replayed: boolean;
+    }>(
+      `/hotel-visits/${encodeURIComponent(visitId)}/sampling-sessions/${encodeURIComponent(pointId)}/speedtests`,
+      "POST",
+      data,
+    );
+  }
+  finishSessionSpeedtest(
+    visitId: string,
+    pointId: string,
+    attemptId: string,
+    data: SessionFinish,
+  ) {
+    return this.request<{ attempt: SamplingSpeedtestAttempt; visit: Visit }>(
+      `/hotel-visits/${encodeURIComponent(visitId)}/sampling-sessions/${encodeURIComponent(pointId)}/speedtests/${encodeURIComponent(attemptId)}/finish`,
       "POST",
       data,
     );

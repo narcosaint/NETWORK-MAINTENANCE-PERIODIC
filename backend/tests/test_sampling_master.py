@@ -30,7 +30,7 @@ def test_master_scope_versions_archive_and_ap_integrity(client, monkeypatch):
     response = api.post(base, headers=admin, json=payload)
     assert response.status_code == 201, response.text
     floor = response.json()
-    assert floor['default_sampling_count'] == 4 and floor['version'] == 1
+    assert floor['default_sampling_count'] == 2 and floor['version'] == 1
     assert api.post(base, headers=admin, json=payload).json()['id'] == floor['id']
     assert api.post(base, headers=admin, json={**payload, 'name': 'Other'}).status_code == 409
     assert api.post(base, headers=admin, json={'name': ' lantai 1 ', 'position': 1}).status_code == 409

@@ -12,7 +12,7 @@ class FloorCreate(StrictInput):
     id: UUID = Field(default_factory=uuid4)
     name: str = Field(min_length=1, max_length=100)
     position: int = Field(ge=0)
-    default_sampling_count: int = Field(default=4, gt=0)
+    default_sampling_count: int = Field(default=2, gt=0)
 
 
 class FloorPatch(StrictInput):

@@ -28,7 +28,7 @@ def run():
         with sync_playwright() as p:
             browser=p.chromium.launch()
             ctx=browser.new_context(viewport={'width':390,'height':844},permissions=['geolocation'],geolocation={'latitude':-7.25,'longitude':112.75,'accuracy':20})
-            page=ctx.new_page();errors=[];writes=[];api_errors=[]
+            page=ctx.new_page();accept_logout=[True];page.on('dialog',lambda dialog:dialog.accept() if accept_logout[0] else dialog.dismiss());errors=[];writes=[];api_errors=[]
             page.on('pageerror',lambda e:errors.append(str(e)))
             visit=copy.deepcopy(VISIT);conflict=[False];expire=[False];empty=[False]
             def api(route):
@@ -41,6 +41,7 @@ def run():
                     else:respond({'access_token':'fixture-token','token_type':'bearer','expires_in':28800})
                     return
                 if path=='/auth/me':respond(USER);return
+                if path=='/auth/me/profile':respond({'phone':None,'email':None,'division':None,'work_area':None,'version':0});return
                 if path=='/auth/logout':route.fulfill(status=204);return
                 if route.request.headers.get('authorization')!='Bearer fixture-token':api_errors.append(path)
                 if method!='GET':writes.append((method,path,route.request.post_data_json))
@@ -48,6 +49,7 @@ def run():
                 if path=='/sampling-capabilities':respond({'coverage_enabled':False,'master_enabled':False});return
                 if path=='/hotel-visits':respond([] if empty[0] or parse_qs(url.query).get('offset')!=['0'] else [visit]);return
                 if path=='/hotel-visits/visit-qa':respond(visit);return
+                if path.endswith('/completion'):respond({'ready':False,'errors':['Lengkapi pemeriksaan area'],'document_digest':'a'*64,'can_submit':False,'pdf_available':False,'signature':None,'points':[]});return
                 if path.endswith('/check-in'):
                     data=route.request.post_data_json
                     assert data['expected_version']==visit['version']
@@ -67,18 +69,24 @@ def run():
                     return main.bottom<=nav.top+1&&main.top>=document.querySelector('.app-header').getBoundingClientRect().bottom-1&&nav.bottom<=innerHeight+1;
                 }''')
             def screenshot_section(title,filename):
-                page.get_by_role('heading',name=title,exact=True).evaluate('''el=>{const main=document.querySelector('.app-content');main.scrollTop+=el.closest('.card').getBoundingClientRect().top-main.getBoundingClientRect().top-12;}''')
+                page.get_by_text(title,exact=True).first.evaluate('''el=>{const main=document.querySelector('.app-content');main.scrollTop+=el.closest('.card').getBoundingClientRect().top-main.getBoundingClientRect().top-12;}''')
                 assert_navigation_clearance()
                 page.screenshot(path=str(ARTIFACTS/filename),full_page=True)
 
             def login():
+                expect(page.locator('input[type="url"]')).to_have_count(0)
+                expect(page.get_by_text('Origin API',exact=False)).to_have_count(0)
                 page.get_by_label('Username',exact=True).fill('qa');page.get_by_label('Password',exact=True).fill('fixture-only')
-                page.get_by_role('button',name='Masuk ke workspace').click()
+                page.get_by_role('button',name='Masuk').click()
                 expect(page.get_by_role('heading',name='Dashboard Teknisi')).to_be_visible()
             def open_hotel():page.locator('.job-card').first.click();expect(page.get_by_role('heading',name='Informasi hotel')).to_be_visible()
             page.goto(origin)
+            expect(page.locator('.login-brand img')).to_have_attribute('alt','Nusa Maintenance')
+            expect(page.locator('.login-brand img')).to_have_js_property('naturalWidth',1500)
+            expect(page.get_by_role('button',name='Masuk',exact=True)).to_be_visible()
+            page.screenshot(path=str(ARTIFACTS/'login-390.png'),full_page=True)
             page.get_by_label('Username',exact=True).fill('qa');page.get_by_label('Password',exact=True).fill('wrong')
-            page.get_by_role('button',name='Masuk ke workspace').click();expect(page.get_by_role('alert')).to_contain_text('Sesi berakhir atau username/password')
+            page.get_by_role('button',name='Masuk').click();expect(page.get_by_role('alert')).to_contain_text('Sesi berakhir atau username/password')
             login();expect(page.locator('.job-card')).to_have_count(1)
             for width in (360,390,430,768):
                 page.set_viewport_size({'width':width,'height':844})
@@ -90,22 +98,34 @@ def run():
             checked=writes[-1][2];assert checked['latitude']==-7.25 and checked['longitude']==112.75 and checked['accuracy_m']==20
             assert 'gps_exception_reason' not in checked
             page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Laporan',exact=True).click()
+            expect(page.locator('.report-fold:not(.customer-details)')).to_have_count(3)
+            page.locator('.report-fold:not(.customer-details)').evaluate_all('(els)=>els.forEach(el=>el.open=true)')
             expect(page.get_by_role('heading',name='Laporan Utama',exact=True)).to_have_count(2)
+            expect(page.locator('.customer-details')).not_to_have_attribute('open','')
+            page.locator('.customer-details summary').click()
             page.get_by_label('Nama PIC',exact=True).fill('PIC QA')
             page.get_by_label('Koneksi backbone').select_option('both')
-            page.get_by_label('Ringkasan / hasil pemeriksaan').fill('Ringkasan QA '+PAYLOAD)
-            page.get_by_label('Hasil pekerjaan',exact=True).select_option('pending')
-            page.get_by_label('Alasan pekerjaan pending').fill('Menunggu tindak lanjut')
-            page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Sampling',exact=True).click()
-            expect(page.locator('.floor-points button')).to_have_count(4)
+            expect(page.get_by_text('Field Nusanet / hasil format lama',exact=True)).to_have_count(0)
+            expect(page.get_by_label('Feedback pelanggan',exact=True)).to_have_count(0)
+            page.get_by_label('Link Test Radio Download (Mbps)',exact=True).fill('0')
+            page.get_by_label('Link Test Radio Upload (Mbps)',exact=True).fill('90.5')
+            page.get_by_label('Ringkasan pemeriksaan').fill('Ringkasan QA '+PAYLOAD)
+            page.get_by_label('Status Pekerjaan',exact=True).select_option('pending')
+            page.get_by_label('Alasan pending').fill('Menunggu tindak lanjut')
+            page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Network Test',exact=True).click()
+            expect(page.locator('.floor-points .area-row>button:first-child')).to_have_count(2)
             page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Laporan',exact=True).click()
-            expect(page.get_by_label('Ringkasan / hasil pemeriksaan')).to_have_value('Ringkasan QA '+PAYLOAD)
-            page.get_by_role('button',name='Simpan laporan ke server').click()
+            expect(page.locator('.report-fold:not(.customer-details)')).to_have_count(3)
+            page.locator('.report-fold:not(.customer-details)').evaluate_all('(els)=>els.forEach(el=>el.open=true)')
+            expect(page.get_by_label('Ringkasan pemeriksaan')).to_have_value('Ringkasan QA '+PAYLOAD)
+            page.get_by_role('button',name='Simpan Laporan').click()
             expect(page.get_by_role('status').filter(has_text='Laporan tersimpan di server')).to_be_visible()
             saved=writes[-1][2];assert saved['expected_version']==2 and saved['report']['fo']['speedtest_mbps']==0
             assert saved['report']['wireless']['tx_mbps']==30 and saved['report']['lan_notes']=='Catatan format lama'
+            assert saved['report']['wireless']['link_test_download_mbps']==0 and saved['report']['wireless']['link_test_upload_mbps']==90.5
+            page.locator('.customer-details summary').click()
             page.get_by_label('Nama PIC',exact=True).fill('PIC draf konflik')
-            conflict[0]=True;page.get_by_role('button',name='Simpan laporan ke server').click()
+            conflict[0]=True;page.get_by_role('button',name='Simpan Laporan').click()
             expect(page.get_by_role('alert')).to_contain_text('Data server berubah')
             expect(page.get_by_label('Nama PIC',exact=True)).to_have_value('PIC draf konflik')
             page.locator('.app-content').evaluate('el=>el.scrollTop=0')
@@ -113,15 +133,26 @@ def run():
             page.screenshot(path=str(ARTIFACTS/'sync-conflict-390.png'),full_page=True)
             conflict[0]=False
             # Tab/radio screens never create measurements or change server completion.
-            page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Sampling',exact=True).click()
-            page.locator('.floor-points button').first.click()
+            page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Network Test',exact=True).click()
+            page.locator('.floor-points .area-row>button:first-child').first.click()
             expect(page.get_by_role('heading',name='Connected Network')).to_be_visible()
+            # Legacy visits can read native radio without a server session; browser
+            # gets an honest unavailable response rather than invented metrics.
+            read_radio=page.get_by_role('button',name='Baca koneksi Wi-Fi',exact=True)
+            expect(read_radio).to_be_enabled()
+            radio_writes=len(writes)
+            read_radio.click()
+            expect(page.get_by_role('alert').filter(has_text='Wi-Fi native')).to_be_visible()
+            assert len(writes)==radio_writes
+
             expect(page.locator('.network-grid')).not_to_contain_text('Koridor QA')
+            expect(page.get_by_role('heading',name='Wi-Fi Scanner',exact=True)).to_be_visible()
             for label in ('2.4 GHz','5 GHz'):page.get_by_role('button',name=label,exact=True).click()
-            page.get_by_role('tab',name='Speedtest',exact=True).click()
-            expect(page.get_by_role('button',name='Mulai Speedtest · Belum tersedia')).to_be_disabled()
-            page.get_by_role('tab',name='Foto & Catatan',exact=True).click()
-            expect(page.locator('.sampling-notes .card-title h2')).to_have_text(['Kondisi & Temuan','Tindakan & Rekomendasi','Dokumentasi Foto'])
+            page.locator('#sampling-panel').wait_for()
+            expect(page.get_by_role('heading',name='Riwayat pengujian lama')).to_be_visible()
+            page.locator('#sampling-panel').wait_for()
+            expect(page.get_by_text('Temuan dan Tindakan',exact=True).first).to_be_visible()
+            page.get_by_text('Temuan dan Tindakan',exact=True).first.click()
             expect(page.locator('.sync-panel')).to_have_count(1)
             expect(page.locator('.sync-panel details')).not_to_have_attribute('open','')
             expect(page.locator('.sync-panel [role=alert]')).to_contain_text('Data server berubah')
@@ -132,14 +163,13 @@ def run():
             ctx.set_offline(True)
             expect(page.locator('.connection')).to_contain_text('Offline')
             note='</textarea>'+PAYLOAD
-            page.get_by_label('Catatan teknisi',exact=True).fill(note)
-            page.get_by_label('Temuan',exact=True).fill('Temuan lokal QA')
-            page.get_by_label('Status titik lokal').select_option('good')
+            page.get_by_label('Temuan dan Tindakan',exact=True).fill(note)
+            expect(page.get_by_label('Status area lokal')).to_have_count(0)
             photo=io.BytesIO();Image.new('RGB',(80,60),(14,115,86)).save(photo,'PNG')
             page.get_by_label('Pilih foto dari perangkat').set_input_files({'name':'fixture.png','mimeType':'image/png','buffer':photo.getvalue()})
             expect(page.locator('.photo-grid img')).to_have_count(1)
-            page.get_by_role('tab',name='Wi-Fi Analyzer',exact=True).click();page.get_by_role('tab',name='Foto & Catatan',exact=True).click()
-            expect(page.get_by_label('Catatan teknisi',exact=True)).to_have_value(note)
+            page.locator('#sampling-panel').wait_for();page.locator('#sampling-panel').wait_for()
+            expect(page.get_by_label('Temuan dan Tindakan',exact=True)).to_have_value(note)
             assert page.locator('script:not([src]),img[src=x]').count()==0
             assert page.evaluate('window.xss') is None
             for width in (360,390,430,768):
@@ -148,7 +178,7 @@ def run():
                 assert page.locator('.app-content').evaluate('el=>el.scrollWidth<=el.clientWidth'),width
                 assert_navigation_clearance()
                 # Scroll/focus every field and photo action; their hit targets stay above the nav.
-                for control in page.locator('.sampling-notes input,.sampling-notes select,.sampling-notes textarea,.sampling-notes button').all():
+                for control in page.locator('.sampling-notes input:visible,.sampling-notes select:visible,.sampling-notes textarea:visible,.sampling-notes button:visible').all():
                     control.scroll_into_view_if_needed()
                     control.focus()
                     rect=control.bounding_box();nav=page.locator('.bottom-nav').bounding_box()
@@ -157,12 +187,11 @@ def run():
                 assert_navigation_clearance()
                 assert page.locator('.photo-grid').evaluate("el=>getComputedStyle(el).gridTemplateColumns.split(' ').length")==2
             page.set_viewport_size({'width':390,'height':844})
-            screenshot_section('Kondisi & Temuan','sampling-notes-390.png')
-            screenshot_section('Tindakan & Rekomendasi','sampling-actions-390.png')
+            screenshot_section('Temuan dan Tindakan','sampling-notes-390.png')
             screenshot_section('Dokumentasi Foto','sampling-photos-390.png')
             # Short viewport simulates reduced space while the software keyboard is open.
             page.set_viewport_size({'width':390,'height':500})
-            control=page.get_by_label('Keterangan foto',exact=True)
+            control=page.get_by_label('Keterangan',exact=True)
             control.scroll_into_view_if_needed();control.focus()
             assert_navigation_clearance()
             rect=control.bounding_box();nav=page.locator('.bottom-nav').bounding_box()
@@ -170,31 +199,35 @@ def run():
             page.set_viewport_size({'width':390,'height':844})
             # Leave and re-enter without discarding drafts; report errors visible offline.
             page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Review',exact=True).click()
-            expect(page.get_by_role('heading',name='Persetujuan PIC')).to_be_visible()
+            expect(page.get_by_role('heading',name='Review, PIC & laporan PDF')).to_be_visible()
             expect(page.locator('.review-point').first).to_contain_text('Belum selesai')
-            expect(page.get_by_role('button',name='Submit / tanda tangan · Belum tersedia')).to_be_disabled()
-            expect(page.locator('.app-content')).to_contain_text('Temuan lokal QA')
-            expect(page.locator('.review-summary h3')).to_have_text(['Backbone Fiber Optic','Wireless Backbone','Local Area Network','Sampling Wi-Fi'])
+            expect(page.get_by_role('button',name='Check-out & kirim laporan')).to_be_disabled()
+            expect(page.locator('.app-content')).to_contain_text(note)
+            expect(page.locator('.review-summary h3')).to_have_text(['Backbone Fiber Optic','Wireless Backbone','Local Area Network','Network Test'])
             expect(page.locator('.review-summary article').first).to_contain_text('Hasil lama 0 Mbps')
             expect(page.locator('.review-summary article').nth(2)).to_contain_text('Belum diperiksa')
-            expect(page.locator('.review-summary article').nth(3)).to_contain_text('0/4 titik selesai')
+            expect(page.locator('.review-summary article').nth(3)).to_contain_text('0/2 area selesai')
             page.locator('.review-summary').evaluate('el=>{const main=document.querySelector(".app-content");main.scrollTop+=el.getBoundingClientRect().top-main.getBoundingClientRect().top-12;}')
             assert_navigation_clearance()
             page.screenshot(path=str(ARTIFACTS/'review-390.png'),full_page=True)
-            screenshot_section('Persetujuan PIC','review-pic-390.png')
+            screenshot_section('Review, PIC & laporan PDF','review-pic-390.png')
             page.get_by_role('navigation',name='Navigasi utama').get_by_role('button',name='Beranda').click()
             ctx.set_offline(False);open_hotel()
             page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Laporan',exact=True).click()
+            expect(page.locator('.report-fold:not(.customer-details)')).to_have_count(3)
+            page.locator('.report-fold:not(.customer-details)').evaluate_all('(els)=>els.forEach(el=>el.open=true)')
+            if not page.locator('.customer-details').get_attribute('open'): page.locator('.customer-details summary').click()
             expect(page.get_by_label('Nama PIC',exact=True)).to_have_value('PIC draf konflik')
-            page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Sampling',exact=True).click()
-            page.locator('.floor-points button').first.click();page.get_by_role('tab',name='Foto & Catatan',exact=True).click()
-            expect(page.get_by_label('Catatan teknisi',exact=True)).to_have_value(note);expect(page.locator('.photo-grid img')).to_have_count(1)
+            page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Network Test',exact=True).click()
+            page.locator('.floor-points .area-row>button:first-child').first.click();page.locator('#sampling-panel').wait_for()
+            page.get_by_text('Temuan dan Tindakan',exact=True).first.click()
+            expect(page.get_by_label('Temuan dan Tindakan',exact=True)).to_have_value(note);expect(page.locator('.photo-grid img')).to_have_count(1)
             # A real storage write failure must remain visibly flagged.
             page.evaluate("()=>{window.originalTransaction=IDBDatabase.prototype.transaction;IDBDatabase.prototype.transaction=function(names,mode,...rest){return window.originalTransaction.call(this,names,mode==='readwrite'?'readonly':mode,...rest);};}")
-            page.get_by_label('Catatan teknisi',exact=True).fill('Gagal tulis fixture')
+            page.get_by_label('Temuan dan Tindakan',exact=True).fill('Gagal tulis fixture')
             expect(page.get_by_role('alert').first).to_contain_text('Gagal')
             page.evaluate('()=>{IDBDatabase.prototype.transaction=window.originalTransaction;}')
-            page.get_by_label('Catatan teknisi',exact=True).fill(note)
+            page.get_by_label('Temuan dan Tindakan',exact=True).fill(note)
             expect(page.get_by_role('status').filter(has_text='Draf lokal tersimpan')).to_be_visible()
             page.get_by_role('navigation',name='Navigasi utama').get_by_role('button',name='Profil').click()
             expect(page.locator('.badge').filter(has_text='3 perubahan lokal belum disinkronkan')).to_be_visible()
@@ -213,6 +246,8 @@ def run():
             page.get_by_role('button',name='Muat ulang kunjungan').click()
             expect(page.locator('.context-row')).to_contain_text(PAYLOAD)
             page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Laporan',exact=True).click()
+            expect(page.locator('.report-fold:not(.customer-details)')).to_have_count(3)
+            page.locator('.report-fold:not(.customer-details)').evaluate_all('(els)=>els.forEach(el=>el.open=true)')
             expect(page.get_by_label('Nama PIC',exact=True)).to_be_disabled()
             page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Review',exact=True).click()
             expect(page.locator('.review-summary article').first).to_contain_text('Tidak sesuai')
@@ -222,12 +257,17 @@ def run():
             expect(page.locator('.review-summary article').nth(2)).to_contain_text('Perlu perhatian')
             # Reloaded server version differs from the saved draft; conflict is visible while closed.
             expect(page.locator('.sync-panel [role=alert]').filter(has_text='Versi draf berbeda')).to_be_visible()
-            page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Sampling',exact=True).click()
+            page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Network Test',exact=True).click()
             expect(page.locator('.floor-card summary')).to_contain_text(PAYLOAD)
             assert page.locator('.app-content img[src=x],.app-content script').count()==0
             page.get_by_role('navigation',name='Navigasi utama').get_by_role('button',name='Profil').click()
             expect(page.get_by_role('heading',name='Data teknisi')).to_be_visible()
             page.get_by_role('button',name='Logout',exact=True).click()
+            expect(page.get_by_role('dialog',name='Keluar dari aplikasi?')).to_be_visible()
+            page.get_by_role('button',name='Tetap di sini',exact=True).click()
+            expect(page.get_by_role('button',name='Logout',exact=True)).to_be_visible()
+            page.get_by_role('button',name='Logout',exact=True).click()
+            page.get_by_role('button',name='Ya, keluar',exact=True).click()
             expect(page.get_by_role('heading',name='Masuk ke aplikasi')).to_be_visible()
             # A second technician cannot see the first account's local drafts/photos.
             USER['id']='second-tech';USER['name']='Teknisi Kedua';visit['technician_id']=USER['id'];visit['status']='assigned'
@@ -241,12 +281,14 @@ def run():
             expect(page.get_by_role('status').filter(has_text='Check-in tersimpan')).to_be_visible()
             checked=writes[-1][2];assert checked['gps_exception_reason']=='Izin lokasi ditolak · fixture QA'
             assert 'latitude' not in checked and 'longitude' not in checked
-            page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Sampling',exact=True).click()
-            page.locator('.floor-points button').first.click();page.get_by_role('tab',name='Foto & Catatan',exact=True).click()
-            expect(page.get_by_label('Catatan teknisi',exact=True)).to_have_value('')
+            page.get_by_role('navigation',name='Tahap maintenance').get_by_role('button',name='Network Test',exact=True).click()
+            page.locator('.floor-points .area-row>button:first-child').first.click();page.locator('#sampling-panel').wait_for()
+            page.get_by_text('Temuan dan Tindakan',exact=True).first.click()
+            expect(page.get_by_label('Temuan dan Tindakan',exact=True)).to_have_value('')
             expect(page.locator('.photo-grid img')).to_have_count(0)
             page.get_by_role('navigation',name='Navigasi utama').get_by_role('button',name='Profil').click()
             page.get_by_role('button',name='Logout',exact=True).click()
+            page.get_by_role('button',name='Ya, keluar',exact=True).click()
             # Empty schedule remains explicit.
             empty[0]=True
             login();expect(page.get_by_role('heading',name='Belum ada penugasan')).to_be_visible()

@@ -1,20 +1,25 @@
 # Web release preserves the previous backend container and uses the existing database.
 services:
   api:
-    image: hotel-maintenance-api:sampling-20261113
+    image: hotel-maintenance-api:review-recovery-20261119T161501Z
     container_name: hotel-maintenance-web-sampling
     environment:
       PHOTO_STORAGE_ROOT: /app/storage/photos
-      PUBLIC_SPEEDTEST_ORIGIN: ${PUBLIC_SPEEDTEST_ORIGIN:-}
+      PUBLIC_SPEEDTEST_ORIGIN: https://maintenance.inisaja.id
+      SAMPLING_MASTER_ENABLED: "true"
+      SAMPLING_OBSERVATIONS_ENABLED: "true"
+      SAMPLING_SPEEDTEST_ENABLED: "true"
+      SAMPLING_FIELD_ENABLED: "true"
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
       POSTGRES_DB: ${POSTGRES_DB:-hotel_maintenance}
       POSTGRES_USER: ${POSTGRES_USER:-hotel_maintenance}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1,10.100.23.103,172.18.0.1,172.19.0.1"]
     volumes:
       - photos:/app/storage/photos
     ports:
-      - "127.0.0.1:8000:8000"
+      - "10.100.23.103:8000:8000"
     networks:
       - internal
       - api_network

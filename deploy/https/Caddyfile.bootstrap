@@ -1,0 +1,18 @@
+# Temporary only: public port 80 currently reaches private port 8000.
+# Stop API only while this bootstrap server obtains the certificate.
+{
+	admin off
+	http_port 8000
+	auto_https disable_redirects
+}
+
+maintenance.inisaja.id {
+	bind 10.100.23.103
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+			disable_tlsalpn_challenge
+		}
+	}
+	respond "Certificate setup in progress" 503
+}

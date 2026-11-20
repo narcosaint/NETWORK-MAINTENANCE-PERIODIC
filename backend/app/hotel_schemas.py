@@ -55,6 +55,8 @@ class BackboneResult(Input):
     download_mbps: Number | None = None
     upload_mbps: Number | None = None
     link_test_radio: Notes | None = None
+    link_test_download_mbps: Number | None = None
+    link_test_upload_mbps: Number | None = None
     agreement_download_mbps: Number | None = None
     agreement_upload_mbps: Number | None = None
     minimum_percent: float | None = Field(default=None, gt=0, le=100, allow_inf_nan=False)

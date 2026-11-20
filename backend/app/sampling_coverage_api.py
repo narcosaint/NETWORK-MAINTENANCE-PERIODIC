@@ -1,4 +1,4 @@
-"""Immutable visit coverage; measurement/submit V2 is a later integration."""
+"""Visit snapshots; technicians may append audited field scope without rewriting evidence."""
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -15,19 +15,34 @@ router = APIRouter(tags=['Sampling coverage'])
 @router.get('/sampling-capabilities')
 def capabilities(user=Depends(current)):
     from app.sampling_observation_api import observations_enabled
-    return {'master_enabled': master_enabled(), 'coverage_enabled': master_enabled(),
-            'measurement_enabled': False, 'observations_enabled': observations_enabled()}
+    from app.sampling_speedtest_api import speedtests_enabled
+    from app.sampling_field_api import field_enabled
+    return {'field_locations_enabled':field_enabled(), 'master_enabled': master_enabled(), 'coverage_enabled': master_enabled(),
+            'measurement_enabled': False, 'observations_enabled': observations_enabled(),
+            'session_speedtests_enabled': speedtests_enabled()}
 
 
 def coverage_info(session, coverage):
     from app.sampling_observation_api import observations_enabled
+    from app.sampling_field_api import field_enabled
+    from app.sampling_speedtest_api import speedtests_enabled, attempt_info
     floors = session.scalars(select(m.SamplingCoverageFloor).where(
         m.SamplingCoverageFloor.coverage_id == coverage.id).order_by(
         m.SamplingCoverageFloor.position_snapshot, m.SamplingCoverageFloor.id)).all()
     sessions = session.scalars(select(m.SamplingSession).where(
         m.SamplingSession.coverage_id == coverage.id).order_by(
         m.SamplingSession.position_snapshot, m.SamplingSession.id)).all()
+    from app.sampling_field_api import removed_session_ids
+    removed=removed_session_ids(session,coverage.hotel_visit_id)
+    sessions=[point for point in sessions if str(point.id) not in removed]
+    floors=[floor for floor in floors if any(point.coverage_floor_id==floor.id for point in sessions)]
     observations = {}
+    attempts = {}
+    if inspect(session.connection()).has_table('sampling_speedtest_attempts'):
+        for attempt in session.scalars(select(m.SamplingSpeedtestAttempt).join(m.SamplingSession,
+                m.SamplingSession.id == m.SamplingSpeedtestAttempt.session_id).where(m.SamplingSession.coverage_id == coverage.id)
+                .order_by(m.SamplingSpeedtestAttempt.created_at, m.SamplingSpeedtestAttempt.id)):
+            attempts.setdefault(attempt.session_id, []).append(attempt_info(session, attempt))
     if inspect(session.connection()).has_table('sampling_observations'):
         from app.sampling_observation_api import observation_info
         latest = select(m.SamplingObservation.session_id,
@@ -38,16 +53,20 @@ def coverage_info(session, coverage):
                 (latest.c.session_id == m.SamplingObservation.session_id) &
                 (latest.c.version == m.SamplingObservation.session_version))):
             observations[record.session_id] = observation_info(record)
+    from app.maintenance_completion import photos, point_completion
+    evidence=photos(session,coverage.hotel_visit_id)
     return {'id': coverage.id, 'hotel_visit_id': coverage.hotel_visit_id,
-            'observations_enabled': observations_enabled(),
+            'field_locations_enabled':field_enabled(), 'observations_enabled': observations_enabled(),
+            'session_speedtests_enabled': speedtests_enabled(),
             'period': coverage.period, 'created_at': coverage.created_at,
-            'photo_policy': coverage.photo_policy_snapshot, 'completion_available': False,
+            'photo_policy': coverage.photo_policy_snapshot, 'completion_available': True,
             'floors': [{'id': floor.id, 'floor_id': floor.floor_id,
                 'name': floor.name_snapshot, 'target_count': floor.target_count,
                 'points': [{'id': point.id, 'sampling_point_id': point.sampling_point_id,
                     'name': point.point_snapshot['name'], 'location': point.point_snapshot['location'],
                     'device': point.point_snapshot['device'], 'status': point.status,
-                    'version': point.version, 'observation': observations.get(point.id)} for point in sessions if point.coverage_floor_id == floor.id]
+                    'completion':point_completion(point.id,observations.get(point.id),attempts.get(point.id,[]),coverage.photo_policy_snapshot,evidence),
+                    'version': point.version, 'observation': observations.get(point.id), 'speedtests': attempts.get(point.id, [])} for point in sessions if point.coverage_floor_id == floor.id]
                 } for floor in floors]}
 
 

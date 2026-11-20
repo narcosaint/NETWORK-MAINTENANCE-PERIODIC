@@ -41,7 +41,7 @@ def direct_origin(request):
 
 def summary(run):
     info = speedtest_info(run)
-    return {**info, 'can_apply':info['status']=='completed' and run.context.get('transport')=='direct_https'
+    return {**info, 'can_apply':run.sampling_session_id is None and not run.context.get('sampling_session_id') and info['status']=='completed' and run.context.get('transport')=='direct_https'
                         and run.context.get('network')=='hotel_wifi' and run.context.get('wifi_confirmed') is True}
 
 
@@ -52,10 +52,15 @@ def start_test(identifier: UUID, item_id: UUID, data: st.StartSpeedtest, request
     item = selected(session, identifier, item_id)
     if item.device_snapshot['device_type'] != 'ap':
         raise HTTPException(422, 'Speedtest sampling harus dikaitkan ke AP yang dipilih')
+    run, token = allocate_run(session, item_id, data, request, user)
+    return commit_run(session, run, token, visit)
+
+
+def allocate_run(session, item_id, data, request, user, context_extra=None, sampling_session_id=None):
     now = datetime.now(timezone.utc)
     session.execute(update(m.NetworkSpeedtest).where(m.NetworkSpeedtest.status=='running',
         m.NetworkSpeedtest.expires_at < now).values(status='failed',error='Sesi pengukuran kedaluwarsa',finished_at=now))
-    run = m.NetworkSpeedtest(visit_device_id=item_id, actor_id=user.id, band=data.band,
+    run = m.NetworkSpeedtest(visit_device_id=item_id, sampling_session_id=sampling_session_id, actor_id=user.id, band=data.band,
         expires_at=now+timedelta(seconds=TTL), context={
             **data.model_dump(exclude={'expected_version','band'}),
             'transport':'direct_https' if direct_origin(request) else 'diagnostic_tunnel_or_local',
@@ -63,6 +68,8 @@ def start_test(identifier: UUID, item_id: UUID, data: st.StartSpeedtest, request
             'engine':'LibreSpeed browser', 'measurement_trust':'browser_reported',
             'radio_verified':False, 'transport_validation':'configured_https_origin_not_network_attestation', 'endpoint_path':'/network-speedtests/transfer/',
         })
+    if context_extra:
+        run.context = {**run.context, **context_extra}
     session.add(run)
     session.flush()
     token = secrets.token_urlsafe(32)
@@ -73,7 +80,11 @@ def start_test(identifier: UUID, item_id: UUID, data: st.StartSpeedtest, request
         if len(_live) >= 2 or any(value['actor_id']==user.id for value in _live.values()):
             raise HTTPException(429, 'Tunggu pengukuran aktif selesai sebelum memulai lagi')
         _live[run.id]={'hash':hashlib.sha256(token.encode()).digest(),'until':time.monotonic()+TTL,
-                      'actor_id':user.id,'download':0,'upload':0,'pings':0,'error':None}
+                      'actor_id':user.id,'worker_origin':run.context.get('worker_origin'),'download':0,'upload':0,'pings':0,'error':None}
+    return run, token
+
+
+def commit_run(session, run, token, visit):
     try:
         save(session)
     except Exception:
@@ -100,7 +111,7 @@ def transfer(run_id, request):
 def count(live, key, size, limit):
     with _lock:
         if live[key]+size>limit:
-            live['error']='Batas volume pengujian tercapai; hasil tidak dipakai sebagai pengukuran AP'
+            live['error']='Batas volume pengujian tercapai; hasil pengukuran tidak diterima'
             raise HTTPException(429, live['error'])
         live[key]+=size
 
@@ -154,6 +165,13 @@ async def upload(run_id: UUID, request: Request):
 
 def owned_run(session, run_id, user):
     run=get(session,m.NetworkSpeedtest,run_id)
+    if run.sampling_session_id is not None:
+        point=get(session,m.SamplingSession,run.sampling_session_id)
+        coverage=get(session,m.SamplingCoverage,point.coverage_id)
+        visible(session,coverage.hotel_visit_id,user)
+        return run,None
+    if run.visit_device_id is None:
+        raise HTTPException(404, 'Sesi pengujian tidak ditemukan')
     item=get(session,m.HotelVisitDevice,run.visit_device_id)
     visible(session,item.visit_id,user)
     return run,item
@@ -161,6 +179,13 @@ def owned_run(session, run_id, user):
 
 @router.post('/network-speedtests/{run_id}/finish')
 def finish_test(run_id: UUID, data: st.FinishSpeedtest, user=Depends(current), session: Session = Depends(db)):
+    run, _ = owned_run(session, run_id, user)
+    if run.sampling_session_id is not None or run.context.get('sampling_session_id'):
+        raise HTTPException(409, 'Gunakan endpoint finish sesi sampling beserta bukti koneksi akhir')
+    return finish_run(run_id, data, user, session)
+
+
+def finish_run(run_id, data, user, session, commit=True):
     run,item=owned_run(session,run_id,user)
     run=session.scalar(select(m.NetworkSpeedtest).where(m.NetworkSpeedtest.id==run_id).with_for_update().execution_options(populate_existing=True))
     if run.status!='running':
@@ -185,7 +210,9 @@ def finish_test(run_id: UUID, data: st.FinishSpeedtest, user=Depends(current), s
             execution_options={'synchronize_session':False})
     if result.rowcount!=1:
         raise HTTPException(409,'Hasil pengukuran sudah disimpan; muat ulang untuk melihatnya')
-    save(session);session.refresh(run)
+    if commit:save(session)
+    else:session.flush()
+    session.refresh(run)
     return summary(run)
 
 

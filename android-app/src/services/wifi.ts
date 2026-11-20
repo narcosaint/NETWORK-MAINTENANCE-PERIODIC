@@ -36,7 +36,10 @@ export type WifiScanBatch = {
 };
 export type RadioDraft = { connection?: WifiConnection; scan?: WifiScanBatch };
 export function radioFromObservation(
-  observation?: SamplingObservation | null,
+  observation?: Pick<
+    SamplingObservation,
+    "wifi_connection" | "wifi_scan"
+  > | null,
 ): RadioDraft {
   const connection = observation?.wifi_connection,
     scan = observation?.wifi_scan;

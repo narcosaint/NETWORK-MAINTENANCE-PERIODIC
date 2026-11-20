@@ -13,7 +13,7 @@ ARTIFACTS=ROOT/'artifacts/sampling'
 VISIT={
     'id':'test-visit','hotel_id':'test-hotel','technician_id':'test-tech','status':'in_progress',
     'version':1,'planned_date':'2026-11-12','report':{},'site':{'name':'Hotel QA (fixture)','maintenance_profile':{}},
-    'devices':[{'id':'test-ap','device_id':'test-device','floor':'26','point':'Titik QA',
+    'devices':[{'id':'test-ap','device_id':'test-device','floor':'26','point':'Area QA',
        'device':{'id':'test-device','name':'AP QA (fixture)','device_type':'ap'},'photos':[],
        'result':{'outcome':'pass','band_24':{'status':'measured','signal_dbm':-62,'channel':6,'bandwidth_mbps':0,'source':'manual'}},
        'speedtests':[{'id':'test-speed','band':'band_24','status':'completed',
@@ -152,7 +152,7 @@ def run():
             page.locator('[data-sampling-back]').click();page.locator('[data-sampling-back]').click()
             page.evaluate("openHotelDetail('test-hotel','floors')")
             page.locator('#hotel-add-floor [name=floor]').fill('27')
-            expect(page.locator('#hotel-add-floor [name=target]')).to_have_value('4')
+            expect(page.locator('#hotel-add-floor [name=target]')).to_have_value('2')
             page.locator('#hotel-add-floor button').click()
             expect(page.locator('.hotel-grid')).to_contain_text('Lantai 27')
             page.evaluate("openSampling('test-visit')")

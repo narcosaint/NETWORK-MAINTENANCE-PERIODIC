@@ -15,7 +15,7 @@ def run(base_url, password, artifacts):
         page=context.new_page();page.on('pageerror',lambda e:errors.append(str(e)))
         def login(username):
             page.goto(base_url);page.locator('[name=username]').fill(username);page.locator('[name=password]').fill(password)
-            page.get_by_role('button',name='Masuk ke workspace').click();expect(page.locator('#workspace')).to_be_visible()
+            page.get_by_role('button',name='Masuk',exact=False).click();expect(page.locator('#workspace')).to_be_visible()
         def nav(name):page.locator('#navigation').get_by_role('button',name=name,exact=True).click()
         def click(name):page.get_by_role('button',name=name,exact=True).click()
         def field(name,value):page.locator('#dialog-fields [name='+name+']').fill(value)

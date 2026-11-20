@@ -1,7 +1,11 @@
 import { useState } from "react";
-import { LockKeyhole, Wifi } from "lucide-react";
+import { LockKeyhole } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
-import { ApiClient, normalizeOrigin } from "../services/api";
+import {
+  ApiClient,
+  normalizeOrigin,
+  DEFAULT_API_ORIGIN,
+} from "../services/api";
 import type { User } from "../types";
 import { Field, Message } from "../components/ui";
 export function Login({
@@ -15,26 +19,29 @@ export function Login({
 }) {
   const [username, setUsername] = useState(""),
     [password, setPassword] = useState(""),
-    [server, setServer] = useState(import.meta.env.VITE_API_URL || ""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const server =
+    import.meta.env.VITE_API_URL ||
+    (Capacitor.isNativePlatform() ? DEFAULT_API_ORIGIN : "");
   return (
     <main className="login-page">
       <div className="login-brand">
-        <Wifi size={38} />
-        <span>
-          HOTEL
-          <br />
-          NETWORK
-        </span>
+        <img
+          className="login-logo"
+          src="/brand/nusa-maintenance-logo.png"
+          alt="Nusa Maintenance"
+          width="1500"
+          height="470"
+        />
       </div>
       <p className="eyebrow">PREVENTIVE MAINTENANCE</p>
       <h1>
         Siap merawat
         <br />
-        jaringan hotel.
+        network anda.
       </h1>
-      <p className="login-intro">Workspace teknisi Nusanet</p>
+      <p className="login-intro">Workspace Teknisi Nusanet</p>
       <form
         className="card login-card"
         onSubmit={async (e) => {
@@ -67,7 +74,7 @@ export function Login({
         </div>
         <p className="connection dark">
           <i className={online ? "online" : "offline"} />
-          {online ? "Koneksi perangkat tersedia" : "Perangkat offline"}
+          {online ? "Online" : "Offline"}
         </p>
         {message && <Message error>{message}</Message>}
         <Field label="Username">
@@ -91,33 +98,16 @@ export function Login({
             disabled={busy}
           />
         </Field>
-        <details open={Capacitor.isNativePlatform()}>
-          <summary>Alamat server</summary>
-          <Field label="Origin API (HTTPS)">
-            <input
-              type="url"
-              placeholder="https://server-anda"
-              value={server}
-              onChange={(e) => setServer(e.target.value)}
-              disabled={busy}
-              required={Capacitor.isNativePlatform()}
-            />
-          </Field>
-          <p className="muted">
-            Gunakan alamat server resmi dari administrator. Browser development
-            memakai proxy lokal bila alamat dikosongkan.
-          </p>
-        </details>
         {error && <Message error>{error}</Message>}
         <button className="primary wide" disabled={busy || !online}>
-          {busy ? "Menghubungkan…" : "Masuk ke workspace →"}
+          {busy ? "Menghubungkan…" : "Masuk"}
         </button>
         <p className="muted small">
           Password dan token tidak disimpan di penyimpanan perangkat. Masuk
           kembali setelah aplikasi dimuat ulang.
         </p>
       </form>
-      <p className="login-footer">MAINTENANCE + WIFI DIAGNOSTICS</p>
+      <p className="login-footer">MAINTENANCE + NETWORK DIAGNOSTICS</p>
     </main>
   );
 }

@@ -34,6 +34,8 @@ export type Backbone = {
   rx_mbps?: number | null;
   ccq_percent?: number | null;
   link_test_radio?: string | null;
+  link_test_download_mbps?: number | null;
+  link_test_upload_mbps?: number | null;
   notes?: string | null;
   source?: "manual";
 };
@@ -82,10 +84,12 @@ export type Run = {
   created_at: string;
   finished_at?: string;
   context?: {
+    connection_start?: SamplingObservation["wifi_connection"];
     transport?: string;
     network?: string;
     wifi_confirmed?: boolean;
     endpoint_origin?: string;
+    access_point?: { id: string; name: string; mac_address: string | null };
   };
   metrics?: {
     download_mbps?: number;
@@ -99,7 +103,12 @@ export type Photo = { id: string; url: string; created_at: string };
 export type Item = {
   id: string;
   device_id: string;
-  device: { id: string; name: string; device_type: string };
+  device: {
+    id: string;
+    name: string;
+    device_type: string;
+    mac_address?: string | null;
+  };
   floor?: string | null;
   point?: string | null;
   result?: { outcome?: string; notes?: string; band_24?: Band; band_5?: Band };
@@ -123,14 +132,19 @@ export type Visit = {
   };
   site?: Hotel;
   devices?: Item[];
+  evidence?: import("./services/completion").Evidence[];
   sampling_coverage?: SamplingCoverage;
 };
 export type ReportDraft = {
   report: Report;
   version: number;
+  baseReport?: Report;
   updatedAt: string;
 };
 export type PointDraft = {
+  combinedNotes?: boolean;
+  baseNotes?: SamplingNotes;
+  failedTestReason?: string;
   radio?: import("./services/wifi").RadioDraft;
   baseVisitVersion?: number;
   baseSessionVersion?: number;
@@ -156,7 +170,12 @@ export type Point = {
   item?: Item;
   session?: SamplingCoverage["floors"][number]["points"][number];
 };
-export type Floor = { id: string; name: string; points: Point[] };
+export type Floor = {
+  id: string;
+  name: string;
+  target?: number;
+  points: Point[];
+};
 export type CheckIn = {
   expected_version: number;
   device_time: string;
@@ -167,10 +186,11 @@ export type CheckIn = {
 };
 
 export type SamplingCoverage = {
+  session_speedtests_enabled?: boolean;
   id: string;
   hotel_visit_id: string;
   period: string;
-  completion_available: false;
+  completion_available: boolean;
   observations_enabled?: boolean;
   photo_policy: {
     sampling_categories: string[];
@@ -190,8 +210,65 @@ export type SamplingCoverage = {
       status: string;
       version: number;
       observation?: SamplingObservation | null;
+      speedtests?: SamplingSpeedtestAttempt[];
+      completion?: {
+        done: boolean;
+        speedtest_accepted: boolean;
+        failed_with_reason: boolean;
+      };
     }[];
   }[];
+};
+
+export type SamplingSpeedtestAttempt = {
+  id: string;
+  session_id: string;
+  created_at: string;
+  status: string;
+  error: string | null;
+  finding: string | null;
+  completion_accepted: false;
+  run: Run | null;
+};
+export type SpeedtestFailure = {
+  id: string;
+  expected_visit_version: number;
+  expected_session_version: number;
+  reason: string;
+};
+export type WifiBinding = {
+  id: string;
+  network_handle: string;
+  source: "android_native";
+};
+export type SessionStart = {
+  id: string;
+  expected_visit_version: number;
+  expected_session_version: number;
+  connection: NonNullable<ObservationSubmission["wifi_connection"]>;
+  binding: WifiBinding;
+};
+export type SpeedMetrics = {
+  download_mbps: number;
+  upload_mbps: number;
+  ping_ms: number;
+  jitter_ms: number | null;
+};
+export type SessionFinish = {
+  result: {
+    status: "completed" | "failed" | "aborted";
+    metrics: SpeedMetrics | null;
+    error: string | null;
+  };
+  connection: ObservationSubmission["wifi_connection"];
+  binding: WifiBinding | null;
+};
+export type TransferRun = Run & {
+  download_limit_bytes?: number;
+  upload_limit_bytes?: number;
+  transfer_token: string;
+  transfer_base: string;
+  duration_seconds: number;
 };
 
 export type SamplingNotes = {
@@ -228,3 +305,15 @@ export type SamplingObservation = {
   wifi_connection?: ObservationSubmission["wifi_connection"];
   wifi_scan?: ObservationSubmission["wifi_scan"];
 };
+
+export type FieldLocationInput = {
+  coverage_floor_id?: string;
+  floor_name?: string;
+  reason: string;
+  points: { name: string; location: string | null; device_id: string | null }[];
+};
+export type FieldLocationRequest = FieldLocationInput & {
+  id: string;
+  expected_visit_version: number;
+};
+export type FieldAp = { id: string; name: string; mac_address: string | null };

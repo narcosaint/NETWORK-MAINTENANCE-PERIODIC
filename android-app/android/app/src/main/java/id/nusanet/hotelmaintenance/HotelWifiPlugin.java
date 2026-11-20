@@ -13,6 +13,7 @@ import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.net.RouteInfo;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiInfo;
@@ -36,9 +37,10 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
+import java.util.UUID;
 import org.json.JSONObject;
 
-/** Read-only radio measurements. Never binds traffic, switches Wi-Fi, or fakes results. */
+/** Radio snapshots and explicit, temporary process binding for a single speedtest. */
 @CapacitorPlugin(name = "HotelWifi", permissions = {
     @Permission(alias = "location", strings = {Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION})
 })
@@ -51,6 +53,12 @@ public class HotelWifiPlugin extends Plugin {
     private BroadcastReceiver scanReceiver;
     private Runnable scanTimeout;
     private long scanStartedUs;
+    private Network boundNetwork;
+    private String bindingId;
+    private String bindingBssid;
+    private int bindingFrequency;
+    private boolean bindingLost;
+    private BindingCallback bindingCallback;
 
     private WifiManager wifi() { return (WifiManager) getContext().getApplicationContext().getSystemService(Context.WIFI_SERVICE); }
     private ConnectivityManager connectivity() { return (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE); }
@@ -93,6 +101,68 @@ public class HotelWifiPlugin extends Plugin {
     public void connection(PluginCall call) {
         if (!permitted()) requestPermissionForAlias("location", call, "locationResult");
         else handler.post(() -> readConnection(call));
+    }
+    @PluginMethod
+    public void beginSpeedtest(PluginCall call) { connection(call); }
+
+    @PluginMethod
+    public void checkSpeedtest(PluginCall call) {
+        handler.post(() -> {
+            boolean same = bindingId != null && bindingId.equals(call.getString("bindingId"));
+            boolean valid = same && !bindingLost;
+            try {
+                valid = valid && boundNetwork.equals(connectivity().getBoundNetworkForProcess()) &&
+                    boundNetwork.equals(connectivity().getActiveNetwork());
+                NetworkCapabilities caps = valid ? connectivity().getNetworkCapabilities(boundNetwork) : null;
+                valid = valid && caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                    !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN);
+            } catch (RuntimeException error) { valid = false; }
+            if (!valid && same) bindingLost = true;
+            call.resolve(new JSObject().put("valid", valid));
+        });
+    }
+
+    @PluginMethod
+    public void endSpeedtest(PluginCall call) {
+        handler.post(() -> {
+            if (bindingId == null || !bindingId.equals(call.getString("bindingId"))) {
+                call.reject("Binding pengujian tidak cocok"); return;
+            }
+            call.resolve(new JSObject().put("released", releaseBinding()));
+        });
+    }
+
+    private class BindingCallback extends ConnectivityManager.NetworkCallback {
+        final String lease = bindingId;
+        BindingCallback() { }
+        @TargetApi(31) BindingCallback(int flags) { super(flags); }
+        @Override public void onLost(Network network) {
+            handler.post(() -> { if (lease.equals(bindingId) && network.equals(boundNetwork)) bindingLost = true; });
+        }
+        @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) {
+            handler.post(() -> {
+                if (!lease.equals(bindingId) || !network.equals(boundNetwork)) return;
+                if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) bindingLost = true;
+                if (Build.VERSION.SDK_INT >= 29 && caps.getTransportInfo() instanceof WifiInfo) {
+                    WifiInfo info = (WifiInfo)caps.getTransportInfo();
+                    if (!bindingBssid.equals(bssid(info.getBSSID())) || bindingFrequency != info.getFrequency()) bindingLost = true;
+                }
+            });
+        }
+    }
+
+    private boolean releaseBinding() {
+        boolean released = false;
+        try {
+            // Do not overwrite a binding installed by another component.
+            if (boundNetwork != null && boundNetwork.equals(connectivity().getBoundNetworkForProcess()))
+                released = connectivity().bindProcessToNetwork(null);
+            else released = connectivity().getBoundNetworkForProcess() == null;
+        } catch (RuntimeException ignored) { }
+        if (bindingCallback != null) try { connectivity().unregisterNetworkCallback(bindingCallback); } catch (RuntimeException ignored) { }
+        if (!released) { bindingLost = true; bindingCallback = null; return false; }
+        boundNetwork = null; bindingId = null; bindingBssid = null; bindingCallback = null; bindingLost = false;
+        return released;
     }
     @PluginMethod
     public void scan(PluginCall call) {
@@ -178,6 +248,22 @@ public class HotelWifiPlugin extends Plugin {
                 .put("frequencyMhz", nullable(frequency > 0 ? frequency : null)).put("channel", nullable(channel(frequency)))
                 .put("band", nullable(band(frequency))).put("rssiDbm", nullable(rssi > -127 && rssi <= 0 ? rssi : null))
                 .put("linkSpeedMbps", nullable(speed >= 0 ? speed : null)).put("ipAddress", nullable(ip)).put("gateway", nullable(gateway));
+            if ("beginSpeedtest".equals(call.getMethodName())) {
+                String actualBssid = info == null ? null : bssid(info.getBSSID());
+                if (boundNetwork != null || connectivity().getBoundNetworkForProcess() != null || actualBssid == null || band(frequency) == null) {
+                    finishUnavailableConnection(call, "Wi-Fi belum teridentifikasi atau binding lain sedang aktif."); return;
+                }
+                if (!connectivity().bindProcessToNetwork(network)) {
+                    finishUnavailableConnection(call, "Trafik tidak dapat diikat ke Wi-Fi."); return;
+                }
+                boundNetwork = network; bindingId = UUID.randomUUID().toString();
+                bindingBssid = actualBssid; bindingFrequency = frequency; bindingLost = false;
+                bindingCallback = Build.VERSION.SDK_INT >= 31 ? new BindingCallback(ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO) : new BindingCallback();
+                try { connectivity().registerNetworkCallback(new NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(), bindingCallback); }
+                catch (RuntimeException error) { releaseBinding(); finishUnavailableConnection(call, "Pemantauan Wi-Fi gagal dimulai."); return; }
+                JSObject lease = new JSObject().put("bindingId", bindingId).put("networkHandle", Long.toString(network.getNetworkHandle())).put("connection", data);
+                clearConnection(); call.resolve(new JSObject().put("available", true).put("data", lease)); return;
+            }
             clearConnection();
             call.resolve(new JSObject().put("available", true).put("data", data));
         } catch (SecurityException error) { finishUnavailableConnection(call, "Izin Wi-Fi berubah saat pembacaan."); }
@@ -247,7 +333,13 @@ public class HotelWifiPlugin extends Plugin {
     @Override protected void handleOnDestroy() {
         PluginCall pendingConnection = connectionCall, pendingScan = scanCall;
         clearConnection(); clearScan();
+        releaseBinding();
         if (pendingConnection != null) unavailable(pendingConnection, "Pembacaan dibatalkan karena aplikasi ditutup.");
         if (pendingScan != null) unavailable(pendingScan, "Scan dibatalkan karena aplikasi ditutup.");
+    }
+    @Override protected void handleOnPause() {
+        // Keep the old network bound until JS stops the worker. Never fall back
+        // to cellular just because the activity moved into the background.
+        if (boundNetwork != null) bindingLost = true;
     }
 }

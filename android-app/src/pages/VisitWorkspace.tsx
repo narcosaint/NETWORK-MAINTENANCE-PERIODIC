@@ -37,13 +37,24 @@ import {
   statusLabels,
   when,
 } from "../domain";
+import { CompletionPanel } from "../components/CompletionPanel";
+import {
+  ObservationConflictCard,
+  type ObservationConflict,
+} from "../components/ObservationConflictCard";
+import { EvidencePanel } from "../components/EvidencePanel";
+import { uploadPhoto } from "../services/completion";
+import { FieldLocationForm } from "../components/FieldLocationForm";
 import { ReportForm } from "./ReportForm";
 import { SamplingDetail } from "./SamplingDetail";
 import { SyncPanel } from "../components/SyncPanel";
 import { ReviewInspectionSummary } from "../components/ReviewInspectionSummary";
-import { SamplingCoveragePanel } from "../components/SamplingCoveragePanel";
+import { radioFromObservation } from "../services/wifi";
+import { combinedAreaNotes } from "../services/areaNotes";
+import { reportSamplingFailure } from "../services/samplingSpeedtests";
+import { runSamplingSpeedtest } from "../services/librespeed";
 import {
-  submitObservation,
+  submitLatestObservation,
   observationMatchesDraft,
   observationKey,
   type PendingObservation,
@@ -79,7 +90,10 @@ export function VisitWorkspace({
     [cached, setCached] = useState(false),
     [pointId, setPointId] = useState(""),
     [gpsException, setGpsException] = useState("");
+  const [pointTab, setPointTab] = useState("analyzer");
   const [noteConflict, setNoteConflict] = useState(false);
+  const [observationConflict, setObservationConflict] =
+    useState<ObservationConflict>();
   const writes = useRef(Promise.resolve()),
     pending = useRef(0),
     reportVersion = useRef<number | null>(null);
@@ -192,7 +206,197 @@ export function VisitWorkspace({
     floors = samplingFloors(visit.devices, visit.sampling_coverage),
     points = floors.flatMap((f) => f.points),
     point = points.find((p) => p.id === pointId),
-    report = draft?.report || visit.report;
+    report = canEdit ? draft?.report || visit.report : visit.report;
+  const appendPhotos = async (
+    files: Blob[],
+    pointId: string,
+    category: string,
+    caption: string,
+  ) => {
+    if (!canEdit) throw new Error("Kunjungan hanya dapat dibaca.");
+    if (
+      files.some(
+        (file) =>
+          !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
+          !file.size ||
+          file.size > 10 * 1024 * 1024,
+      )
+    )
+      throw new Error("Pilih foto JPEG/PNG/WebP maksimal 10 MiB per foto.");
+    await persist(async () => {
+      const existing = (await store.get<LocalPhoto[]>(key + "photos")) || [];
+      const remote = (visit.evidence || []).filter(
+        (p) =>
+          (p.session_id || "infrastructure") === pointId &&
+          (pointId !== "infrastructure" || p.category === category),
+      ).length;
+      if (
+        existing.filter(
+          (p) =>
+            p.pointId === pointId &&
+            (pointId !== "infrastructure" || p.category === category),
+        ).length +
+          remote +
+          files.length >
+        10
+      )
+        throw new Error(
+          "Maksimal 10 foto per area atau kategori dokumentasi utama.",
+        );
+      const next = [
+        ...existing,
+        ...files.map((blob) => ({
+          id: crypto.randomUUID(),
+          pointId,
+          category,
+          caption,
+          createdAt: new Date().toISOString(),
+          blob,
+        })),
+      ];
+      await store.put(key + "photos", next);
+      setPhotos(next);
+    });
+  };
+  const captureConflict = (error: unknown) => {
+    const detail = (error as { detail?: ObservationConflict }).detail;
+    if (detail?.code === "sampling_notes_conflict")
+      setObservationConflict(detail);
+  };
+  const resolveConflict = async (local: boolean) => {
+    if (!observationConflict) return;
+    setBusy(true);
+    try {
+      await flushLocal(key);
+      const id = observationConflict.session_id;
+      const saved =
+        (await store.get<Record<string, PointDraft>>(key + "notes")) || {};
+      const pendingKey = observationKey(key, id);
+      const pendingRequest = await store.get<PendingObservation>(pendingKey);
+      if (pendingRequest && !pendingRequest.conflict)
+        throw new Error(
+          "Pastikan status kiriman sebelumnya sebelum mengganti draf.",
+        );
+      await store.put(key + "recovery:" + crypto.randomUUID(), {
+        draft: saved[id],
+        pendingRequest,
+        conflict: observationConflict,
+      });
+      const selected = { ...observationConflict.merged_notes };
+      if (local)
+        for (const field of observationConflict.fields) {
+          if (field === "condition")
+            selected.condition = observationConflict.requested_notes.condition;
+          else selected[field] = observationConflict.requested_notes[field];
+        }
+      saved[id] = {
+        ...saved[id],
+        ...selected,
+        status: selected.condition,
+        combinedNotes: false,
+        baseNotes: observationConflict.current_notes,
+        baseVisitVersion: observationConflict.current_visit_version,
+        baseSessionVersion: observationConflict.current_session_version,
+        updatedAt: new Date().toISOString(),
+      };
+      await store.put(key + "notes", saved);
+      await store.remove(pendingKey);
+      setNotes(saved);
+      setObservationConflict(undefined);
+      setError("");
+      setSync(
+        "Pilihan tersimpan sebagai draf. Tekan Review Hasil PDF atau Simpan Hasil untuk melanjutkan.",
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const prepareReview = async (): Promise<Visit> => {
+    setBusy(true);
+    try {
+      await flushLocal(key);
+      let current = await api.visit(visit.id);
+      await accept(current);
+      const localReport = await store.get<ReportDraft>(key + "report");
+      if (localReport) {
+        if (
+          JSON.stringify(reportForSave(localReport.report)) !==
+          JSON.stringify(reportForSave(current.report))
+        ) {
+          if (
+            localReport.version !== current.version &&
+            JSON.stringify(localReport.baseReport) !==
+              JSON.stringify(current.report)
+          )
+            throw new Error(
+              "Draf laporan berbeda dari server. Tinjau Laporan Utama dan simpan terlebih dahulu.",
+            );
+          current = await api.saveReport(
+            current.id,
+            current.version,
+            reportForSave(localReport.report),
+          );
+          await accept(current);
+        }
+        await store.remove(key + "report");
+        setDraft(undefined);
+        reportVersion.current = null;
+      }
+      const pendingNotes =
+        (await store.get<Record<string, PointDraft>>(key + "notes")) || {};
+      for (const [id, value] of Object.entries(pendingNotes)) {
+        const area = samplingFloors(current.devices, current.sampling_coverage)
+          .flatMap((f) => f.points)
+          .find((p) => p.id === id);
+        if (!area?.session)
+          throw new Error(
+            "Draf area tidak lagi tersedia. Tinjau Network Test sebelum melanjutkan.",
+          );
+        if (
+          (await store.get(observationKey(key, id))) ||
+          !area.session.observation ||
+          !observationMatchesDraft(
+            value,
+            area.session.observation.notes,
+            area.session.observation,
+          )
+        ) {
+          const response = await submitLatestObservation(
+            api,
+            key,
+            current,
+            area,
+            value,
+            true,
+          );
+          current = response.visit;
+          await accept(current);
+        }
+        delete pendingNotes[id];
+        await store.put(key + "notes", { ...pendingNotes });
+        setNotes({ ...pendingNotes });
+      }
+      let pendingPhotos = (await store.get<LocalPhoto[]>(key + "photos")) || [];
+      for (const photo of [...pendingPhotos]) {
+        const response = await uploadPhoto(api, current, photo);
+        current = response.visit;
+        await accept(current);
+        pendingPhotos = pendingPhotos.filter((p) => p.id !== photo.id);
+        await store.put(key + "photos", pendingPhotos);
+        setPhotos(pendingPhotos);
+      }
+      setError("");
+      setSync("Seluruh perubahan tersimpan di server.");
+      return current;
+    } catch (e) {
+      captureConflict(e);
+      throw e;
+    } finally {
+      setBusy(false);
+    }
+  };
   const checkIn = async (exception = false) => {
     setBusy(true);
     setError("");
@@ -217,6 +421,7 @@ export function VisitWorkspace({
     if (!canEdit || busy) return;
     const next = {
       report: r,
+      baseReport: draft?.baseReport || visit.report,
       version: reportVersion.current ?? visit.version,
       updatedAt: new Date().toISOString(),
     };
@@ -234,9 +439,17 @@ export function VisitWorkspace({
           "Offline. Draf tetap lokal; simpan ke server ketika koneksi tersedia.",
         );
       await writes.current;
+      const current = await api.visit(visit.id);
+      if (
+        draft.version !== current.version &&
+        JSON.stringify(draft.baseReport) !== JSON.stringify(current.report)
+      )
+        throw new Error(
+          "Laporan server berubah. Tinjau perubahan sebelum menyimpan draf.",
+        );
       const updated = await api.saveReport(
         visit.id,
-        draft.version,
+        current.version,
         reportForSave(draft.report),
       );
       await accept(updated);
@@ -256,7 +469,7 @@ export function VisitWorkspace({
     setError("");
     try {
       await writes.current;
-      const result = await submitObservation(
+      const result = await submitLatestObservation(
         api,
         key,
         visit,
@@ -266,23 +479,24 @@ export function VisitWorkspace({
         rebase,
       );
       await accept(result.visit);
-      if (
-        observationMatchesDraft(
-          notes[point.id],
-          point.session.observation?.notes,
-          result.observation,
-        )
-      ) {
-        const next = { ...notes };
-        delete next[point.id];
-        await store.put(key + "notes", next);
-        setNotes(next);
-      }
+      const next = { ...notes };
+      delete next[point.id];
+      await store.put(key + "notes", next);
+      setNotes(next);
       setNoteConflict(false);
-      setSync(
-        "Catatan titik tersimpan di server. Foto lokal dan pengujian belum tersinkron.",
-      );
+      let current = result.visit;
+      let pendingPhotos = (await store.get<LocalPhoto[]>(key + "photos")) || [];
+      for (const photo of pendingPhotos.filter((p) => p.pointId === point.id)) {
+        const uploaded = await uploadPhoto(api, current, photo);
+        current = uploaded.visit;
+        await accept(current);
+        pendingPhotos = pendingPhotos.filter((p) => p.id !== photo.id);
+        await store.put(key + "photos", pendingPhotos);
+        setPhotos(pendingPhotos);
+      }
+      setSync("Hasil area tersimpan di server.");
     } catch (error) {
+      captureConflict(error);
       setError((error as Error).message);
       try {
         setNoteConflict(
@@ -323,15 +537,23 @@ export function VisitWorkspace({
         error={error}
         cached={cached}
         draftVersion={draft?.version}
-        versionConflict={!!draft && draft.version !== visit.version}
+        versionConflict={
+          !!draft &&
+          draft.version !== visit.version &&
+          JSON.stringify(draft.baseReport) !== JSON.stringify(visit.report)
+        }
       />
-      {visit.sampling_coverage &&
-        ["hotel", "floors", "review"].includes(route) && (
-          <SamplingCoveragePanel
-            coverage={visit.sampling_coverage}
-            cached={cached}
-          />
-        )}
+      {observationConflict && (
+        <ObservationConflictCard
+          conflict={observationConflict}
+          name={
+            points.find((p) => p.id === observationConflict.session_id)?.name ||
+            ""
+          }
+          busy={busy}
+          resolve={(local) => void resolveConflict(local)}
+        />
+      )}
       {route === "hotel" ? (
         <>
           <Card
@@ -406,9 +628,9 @@ export function VisitWorkspace({
                   ],
                   [
                     "floors",
-                    "Sampling Wi-Fi",
+                    "Network Test",
                     totals.total
-                      ? `${totals.done}/${totals.total} titik selesai`
+                      ? `${totals.done}/${totals.total} area selesai`
                       : "Belum diperiksa",
                   ],
                   ["review", "Review Laporan", "PIC belum tersedia"],
@@ -438,23 +660,34 @@ export function VisitWorkspace({
       ) : route === "floors" ? (
         <>
           <div className="section-heading">
-            <h2>Sampling per lantai</h2>
-            <Badge>{floors.length} lantai</Badge>
+            <h2>Test per lantai</h2>
+            <Badge>{points.length} area</Badge>
           </div>
           <Card>
             <Meter {...totals} />
             <p className="muted">
               {visit.sampling_coverage ? (
-                "Cakupan kunjungan tersimpan. Setiap titik mempunyai sesi sendiri; pengukuran dan submit V2 belum tersedia."
+                "Setiap area menyimpan hasil Wi-Fi dan speedtest sendiri. Teknisi dapat menambah lantai dan area aktual di bawah."
               ) : (
                 <>
-                  Default 4 titik per lantai dari AP kunjungan. Target kosong
-                  belum menjadi record server. Konfigurasi lantai lokal Web
-                  belum tersinkron ke Android.
+                  Lantai dan area mengikuti lokasi yang diperiksa. Tambahkan
+                  area. Master lantai dan sesi pengujian belum tersedia pada
+                  kunjungan ini. Supervisor mengatur lantai melalui Data Hotel
+                  di Web.
                 </>
               )}
             </p>
           </Card>
+          {canEdit && (
+            <FieldLocationForm
+              api={api}
+              scope={key}
+              visit={visit}
+              online={online}
+              busy={busy}
+              onVisit={accept}
+            />
+          )}
           {floors.map((f) => (
             <details className="floor-card" key={f.id} open>
               <summary>
@@ -462,7 +695,7 @@ export function VisitWorkspace({
                   <h3>Lantai {f.name}</h3>
                   <small>
                     {f.points.filter((p) => pointEvidence(p).done).length}/
-                    {f.points.length} titik selesai
+                    {f.points.length} area selesai
                   </small>
                 </div>
                 <span>⌄</span>
@@ -471,32 +704,76 @@ export function VisitWorkspace({
                 {f.points.map((p) => {
                   const e = pointEvidence(p);
                   return (
-                    <button
-                      key={p.id}
-                      onClick={() => {
-                        setPointId(p.id);
-                        setNoteConflict(false);
-                        go("point");
-                      }}
-                    >
-                      <span>
-                        {notes[p.id]?.location || p.name}
-                        <small>
-                          {p.session?.device?.name ||
-                            (p.session
-                              ? "AP belum dihubungkan"
-                              : p.item?.device.name) ||
-                            "Target lokal · belum terhubung"}
-                        </small>
-                      </span>
-                      <Badge
-                        tone={
-                          e.problem ? "danger" : e.done ? "success" : "neutral"
-                        }
+                    <div key={p.id} className="area-row">
+                      <button
+                        onClick={() => {
+                          setPointTab("analyzer");
+                          setPointId(p.id);
+                          setNoteConflict(false);
+                          go("point");
+                        }}
                       >
-                        {e.label}
-                      </Badge>
-                    </button>
+                        <span>
+                          {notes[p.id]?.location || p.name}
+                          <small>{"Wi-Fi yang terhubung ke HP"}</small>
+                        </span>
+                        <Badge
+                          tone={
+                            e.problem
+                              ? "danger"
+                              : e.done
+                                ? "success"
+                                : "neutral"
+                          }
+                        >
+                          {e.label}
+                        </Badge>
+                      </button>
+                      {canEdit &&
+                        p.session &&
+                        !p.session.observation &&
+                        !p.session.speedtests?.length &&
+                        !notes[p.id] &&
+                        !photos.some((photo) => photo.pointId === p.id) &&
+                        !visit.evidence?.some(
+                          (photo) => photo.session_id === p.id,
+                        ) && (
+                          <button
+                            className="secondary"
+                            disabled={busy}
+                            onClick={async () => {
+                              if (
+                                !window.confirm(
+                                  "Hapus area kosong ini dari daftar pemeriksaan?",
+                                )
+                              )
+                                return;
+                              setBusy(true);
+                              try {
+                                const response = await api.request<{
+                                  visit: Visit;
+                                }>(
+                                  `/hotel-visits/${visit.id}/sampling-sessions/${p.id}/remove`,
+                                  "POST",
+                                  {
+                                    id: crypto.randomUUID(),
+                                    expected_visit_version: visit.version,
+                                    expected_session_version:
+                                      p.session!.version,
+                                  },
+                                );
+                                await accept(response.visit);
+                              } catch (e) {
+                                setError((e as Error).message);
+                              } finally {
+                                setBusy(false);
+                              }
+                            }}
+                          >
+                            Hapus area kosong
+                          </button>
+                        )}
+                    </div>
                   );
                 })}
               </div>
@@ -505,8 +782,8 @@ export function VisitWorkspace({
           {!floors.length && (
             <Card>
               <Empty title="Belum ada lantai sampling">
-                Pilih AP sampling melalui Web Dashboard. Android belum memiliki
-                master lantai/titik tersinkron.
+                Check-in lalu gunakan Tambah Area untuk memasukkan lokasi
+                pengujian.
               </Empty>
             </Card>
           )}
@@ -515,29 +792,136 @@ export function VisitWorkspace({
         <SamplingDetail
           key={point.id}
           point={point}
+          areas={floors.flatMap((f) =>
+            f.points.map((p) => ({ id: p.id, name: `${f.name} · ${p.name}` })),
+          )}
+          initialTab={pointTab}
+          selectArea={(id) => {
+            setPointTab("notes");
+            setPointId(id);
+          }}
           draft={notes[point.id]}
           photos={photos.filter((p) => p.pointId === point.id)}
-          captureRadio={
-            point.session
-              ? async (radio) => {
+          startTest={
+            point.session &&
+            visit.sampling_coverage?.session_speedtests_enabled &&
+            api.origin.startsWith("https://")
+              ? async (signal, progress) => {
                   if (!canEdit)
                     throw new Error("Kunjungan hanya dapat dibaca.");
-                  const value = {
-                    ...notes[point.id],
-                    radio: { ...notes[point.id]?.radio, ...radio },
-                    baseVisitVersion:
-                      notes[point.id]?.baseVisitVersion ?? visit.version,
-                    baseSessionVersion:
-                      notes[point.id]?.baseSessionVersion ??
-                      point.session?.version,
-                    updatedAt: new Date().toISOString(),
-                  };
-                  const next = { ...notes, [point.id]: value };
-                  await persist(() => store.put(key + "notes", next));
-                  setNotes(next);
+                  setBusy(true);
+                  setError("");
+                  try {
+                    await writes.current;
+                    const saved = await runSamplingSpeedtest(
+                      api,
+                      key,
+                      visit,
+                      point,
+                      signal,
+                      progress,
+                      accept,
+                    );
+                    const local = notes[point.id];
+                    if (
+                      local &&
+                      saved.visit.version === visit.version + 2 &&
+                      local.baseVisitVersion === visit.version &&
+                      local.baseSessionVersion === point.session?.version
+                    ) {
+                      const current = saved.visit.sampling_coverage?.floors
+                        .flatMap((f) => f.points)
+                        .find((p) => p.id === point.id);
+                      const next = {
+                        ...notes,
+                        [point.id]: {
+                          ...local,
+                          baseVisitVersion: saved.visit.version,
+                          baseSessionVersion: current?.version,
+                          radio: {
+                            ...local.radio,
+                            ...radioFromObservation(current?.observation),
+                          },
+                        },
+                      };
+                      await persist(() => store.put(key + "notes", next));
+                      setNotes(next);
+                    }
+                    setSync(
+                      saved.attempt.status === "completed"
+                        ? "Hasil Wi-Fi dan speedtest area tersimpan."
+                        : saved.attempt.error || "Pengujian dihentikan.",
+                    );
+                  } finally {
+                    setBusy(false);
+                  }
                 }
               : undefined
           }
+          reportFailure={
+            point.session && visit.sampling_coverage?.session_speedtests_enabled
+              ? async (rebase) => {
+                  if (!canEdit) return;
+                  setBusy(true);
+                  setError("");
+                  try {
+                    await writes.current;
+                    const result = await reportSamplingFailure(
+                      api,
+                      key,
+                      visit,
+                      point,
+                      notes[point.id] || {
+                        updatedAt: new Date().toISOString(),
+                      },
+                      online,
+                      rebase,
+                    );
+                    await accept(result.visit);
+                    if (
+                      notes[point.id]?.failedTestReason?.trim() ===
+                      result.attempt.error
+                    ) {
+                      const next = { ...notes },
+                        remaining = { ...next[point.id] };
+                      delete remaining.failedTestReason;
+                      const keys = Object.keys(remaining).filter(
+                        (key) =>
+                          ![
+                            "updatedAt",
+                            "baseVisitVersion",
+                            "baseSessionVersion",
+                          ].includes(key),
+                      );
+                      if (keys.length) next[point.id] = remaining;
+                      else delete next[point.id];
+                      await store.put(key + "notes", next);
+                      setNotes(next);
+                    }
+                    setSync(
+                      "Alasan gagal uji tersimpan. Lengkapi tindakan dan dokumentasi sebelum submit.",
+                    );
+                  } finally {
+                    setBusy(false);
+                  }
+                }
+              : undefined
+          }
+          captureRadio={async (radio) => {
+            if (!canEdit) throw new Error("Kunjungan hanya dapat dibaca.");
+            const value = {
+              ...notes[point.id],
+              radio: { ...notes[point.id]?.radio, ...radio },
+              baseVisitVersion:
+                notes[point.id]?.baseVisitVersion ?? visit.version,
+              baseSessionVersion:
+                notes[point.id]?.baseSessionVersion ?? point.session?.version,
+              updatedAt: new Date().toISOString(),
+            };
+            const next = { ...notes, [point.id]: value };
+            await persist(() => store.put(key + "notes", next));
+            setNotes(next);
+          }}
           editable={canEdit}
           busy={busy}
           saveNotes={
@@ -554,6 +938,9 @@ export function VisitWorkspace({
               ...notes,
               [point.id]: {
                 ...value,
+                baseNotes:
+                  notes[point.id]?.baseNotes ||
+                  point.session?.observation?.notes,
                 baseVisitVersion:
                   notes[point.id]?.baseVisitVersion ?? visit.version,
                 baseSessionVersion:
@@ -563,47 +950,31 @@ export function VisitWorkspace({
             setNotes(next);
             void persist(() => store.put(key + "notes", next));
           }}
-          addPhoto={async (blob, category, caption) => {
-            if (!canEdit) throw new Error("Kunjungan hanya dapat dibaca.");
-            if (
-              !["image/jpeg", "image/png", "image/webp"].includes(blob.type) ||
-              !blob.size ||
-              blob.size > 10 * 1024 * 1024
-            )
-              throw new Error("Pilih foto JPEG/PNG/WebP maksimal 10 MiB.");
-            if (photos.filter((p) => p.pointId === point.id).length >= 10)
-              throw new Error("Maksimal 10 foto lokal per titik.");
-            const photo: LocalPhoto = {
-              id: crypto.randomUUID(),
-              pointId: point.id,
-              category,
-              caption,
-              createdAt: new Date().toISOString(),
-              blob,
-            };
-            const next = [...photos, photo];
-            await persist(() => store.put(key + "photos", next));
-            setPhotos(next);
-          }}
+          addPhoto={async (blob, category, caption) =>
+            appendPhotos([blob], point.id, category, caption)
+          }
+          remotePhotos={
+            (visit.evidence || []).filter(
+              (photo) => photo.session_id === point.id,
+            ).length
+          }
+          addPhotos={async (files, category, caption) =>
+            appendPhotos(files, point.id, category, caption)
+          }
         />
       ) : route === "review" ? (
         <>
           <Card title="Ringkasan laporan">
-            <p className="muted">Ringkasan dari laporan server.</p>
-            <p className="report-text">
-              {visit.report.summary || "Belum diperiksa"}
-            </p>
+            <p className="report-text">{report.summary || "Belum diperiksa"}</p>
             <button className="secondary" onClick={() => go("report")}>
               Tinjau laporan utama
             </button>
           </Card>
-          <ReviewInspectionSummary report={visit.report} points={points} />
-          <Card title="Cakupan sampling">
+          <ReviewInspectionSummary report={report} points={points} />
+          <Card title="Ringkasan Network Test">
             <Meter {...totals} />
             <p className="muted">
-              Selesai membutuhkan outcome, foto server dan speedtest Wi-Fi yang
-              diterima / gagal beralasan. Ini proyeksi bukti, bukan validasi
-              submit resmi.
+              Status setiap area mengikuti hasil pengujian yang tersimpan.
             </p>
             {points.map((p) => (
               <div className="review-point" key={p.id}>
@@ -614,51 +985,87 @@ export function VisitWorkspace({
               </div>
             ))}
           </Card>
-          <Card title="Temuan">
+          <Card title="Temuan dan Tindakan">
             {points
-              .filter((p) => pointEvidence(p).problem)
+              .filter(
+                (p) =>
+                  combinedAreaNotes(
+                    notes[p.id],
+                    p.session?.observation?.notes,
+                  ) || pointEvidence(p).problem,
+              )
               .map((p) => (
                 <p key={p.id}>
                   {p.name}:{" "}
-                  {p.item?.result?.notes ||
+                  {combinedAreaNotes(
+                    notes[p.id],
+                    p.session?.observation?.notes,
+                  ) ||
+                    p.item?.result?.notes ||
                     pointEvidence(p).run?.error ||
                     "Keterangan belum tersedia"}
                 </p>
               ))}
-            {!points.some((p) => pointEvidence(p).problem) && (
+            {!points.some(
+              (p) =>
+                combinedAreaNotes(notes[p.id], p.session?.observation?.notes) ||
+                pointEvidence(p).problem,
+            ) && (
               <p className="muted">
-                {points.some((p) => p.item)
-                  ? "Belum ada titik bermasalah pada data server."
-                  : "Belum diperiksa"}
+                Belum ada temuan atau tindakan yang dicatat.
               </p>
             )}
-            {Object.entries(notes)
-              .filter(([, d]) => d.findings)
-              .map(([id, d]) => (
-                <p key={id}>
-                  <Badge tone="warning">Temuan lokal</Badge> {d.findings}
-                </p>
-              ))}
           </Card>
-          <Card title="Persetujuan PIC">
-            <Badge>Belum tersedia</Badge>
-            <p>PIC: {visit.report.pic_name || "Belum tersedia"}</p>
-            <p className="muted">
-              Approval supervisor bukan tanda tangan PIC. Review PIC, signature,
-              submit V2 dan PDF Android belum terintegrasi.
-            </p>
-            <button disabled className="primary wide">
-              Submit / tanda tangan · Belum tersedia
-            </button>
-            <p className="muted">
-              Gunakan alur review existing di Web Dashboard untuk pekerjaan yang
-              saat ini didukung.
-            </p>
-          </Card>
+          <EvidencePanel
+            api={api}
+            visit={visit}
+            photos={photos}
+            busy={busy}
+            online={online}
+            editable={canEdit}
+            addPhotos={async (values) =>
+              appendPhotos(
+                values.map((photo) => photo.blob),
+                "infrastructure",
+                values[0].category,
+                values[0].caption,
+              )
+            }
+            removePhoto={async (photo) => {
+              const next = photos.filter((p) => p.id !== photo.id);
+              await persist(() => store.put(key + "photos", next));
+              setPhotos(next);
+            }}
+            upload={async (photo) => {
+              if (busy) return;
+              setBusy(true);
+              try {
+                await flushLocal(key);
+                const response = await uploadPhoto(api, visit, photo);
+                await accept(response.visit);
+                const next = photos.filter((p) => p.id !== photo.id);
+                await store.put(key + "photos", next);
+                setPhotos(next);
+                setSync("Foto diterima server dan siap dimasukkan ke PDF.");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          />
+          <CompletionPanel
+            api={api}
+            visit={visit}
+            scope={key}
+            online={online}
+            busy={busy}
+            blocked={local}
+            prepare={prepareReview}
+            onVisit={accept}
+          />
         </>
       ) : (
         <Card>
-          <Empty title="Pilih titik sampling">
+          <Empty title="Pilih area sampling">
             <button className="secondary" onClick={() => go("floors")}>
               Lihat lantai
             </button>

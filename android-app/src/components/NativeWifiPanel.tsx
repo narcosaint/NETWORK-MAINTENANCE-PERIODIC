@@ -67,7 +67,6 @@ function ScanGraph({ scan }: { scan: WifiScanBatch }) {
 
 export function NativeWifiPanel({
   mode,
-  point,
   radio,
   capture,
   busy,
@@ -116,11 +115,6 @@ export function NativeWifiPanel({
   };
   if (mode === "connection") {
     const connection = radio?.connection;
-    const inventory = point.session?.device;
-    const identified =
-      !!connection?.bssid &&
-      !!inventory?.mac_address &&
-      connection.bssid.toLowerCase() === inventory.mac_address.toLowerCase();
     const fields: [string, string | number | null | undefined][] = [
       ["SSID", connection?.ssid],
       ["BSSID", connection?.bssid],
@@ -134,7 +128,11 @@ export function NativeWifiPanel({
     ];
     return (
       <Card title="Connected Network">
-        <p>{identified ? inventory?.name : "AP Belum Teridentifikasi"}</p>
+        <p>
+          {connection
+            ? "Koneksi Wi-Fi HP saat pengukuran"
+            : "Hubungkan HP ke Wi-Fi untuk membaca jaringan."}
+        </p>
         {connection && (
           <p className="muted">
             Pembacaan Android {when(connection.observedAt)} · snapshot
@@ -173,7 +171,7 @@ export function NativeWifiPanel({
     ),
   ).length;
   return (
-    <Card title="Wi-Fi Analyzer">
+    <Card title="Wi-Fi Scanner">
       <div className="segmented" aria-label="Band Wi-Fi">
         {(["2.4 GHz", "5 GHz"] as const).map((value) => (
           <button
@@ -231,8 +229,8 @@ export function NativeWifiPanel({
         {busy ? "Memindai…" : "Pindai Wi-Fi"}
       </button>
       <p className="muted">
-        Hasil disimpan sebagai draf pada titik ini. Kirim melalui Simpan catatan
-        ke server. Android dapat membatasi scan.
+        Hasil disimpan sebagai draf pada area ini. Kirim melalui Simpan Hasil.
+        Android dapat membatasi scan.
       </p>
     </Card>
   );
